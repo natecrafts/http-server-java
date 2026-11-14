@@ -1,0 +1,11 @@
+repos:
+  - repo: https://github.com/natecrafts/google-java-format-pre-commit
+    rev: v2.0.0
+    hooks:
+      - id: google-java-format-aosp
+        args:
+          - --skip-javadoc-formatting
+  - repo: https://github.com/google/yamlfmt
+    rev: v0.21.0
+    hooks:
+      - id: yamlfmt
