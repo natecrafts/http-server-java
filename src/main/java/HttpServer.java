@@ -50,8 +50,19 @@ public class HttpServer {
             // TODO: Send an appropriate response here.
             throw new RuntimeException(e);
         }
-        if (Objects.equals(request.path, "/")) {
+        if (request.path == null) {
+            sendResponse(out, HttpStatus.NOT_FOUND, null, null);
+        } else if (request.path.equals("/")) {
             sendResponse(out, HttpStatus.OK, null, null);
+        } else if (request.path.startsWith("/echo/")) {
+            String str = request.path.substring("/echo/".length());
+            String contentType = "text/plain";
+            // According to RFC 6657, we use the US_ASCII charset for content type
+            // text/plain by default, unless the content type header also explicitly
+            // includes a charset.
+            // For example: 'Content-Type: text/plain; charset=utf-8'
+            byte[] body = str.getBytes(StandardCharsets.US_ASCII);
+            sendResponse(out, HttpStatus.OK, contentType, body);
         } else {
             sendResponse(out, HttpStatus.NOT_FOUND, null, null);
         }
@@ -63,20 +74,26 @@ public class HttpServer {
         ByteArrayOutputStream buf = new ByteArrayOutputStream();
 
         StringBuilder header = new StringBuilder();
+        // Response line
         header.append("HTTP/1.1 ");
         header.append(status.code).append(" ").append(status.reason);
         header.append("\r\n");
 
-        // TODO: Headers
+        // Header lines
+        if (contentType != null) {
+            header.append("Content-Type: ").append(contentType).append("\r\n");
+        }
+        if (body != null) {
+            header.append("Content-Length: ").append(body.length).append("\r\n");
+        }
 
         header.append("\r\n");
-        // Use US_ASCII to comply with RFC 9110 and RFC 9112.
+        // Use the US_ASCII charset to encode the header to comply with RFC 9110 and RFC 9112.
         buf.write(header.toString().getBytes(StandardCharsets.US_ASCII));
 
-        // TODO: Write body
-        // if (body != null) {
-        //     buf.write(body);
-        // }
+        if (body != null) {
+            buf.write(body);
+        }
 
         out.write(buf.toByteArray());
         out.flush();
@@ -156,6 +173,20 @@ public class HttpServer {
             this.path = path;
             this.version = version;
             this.headers = headers;
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (!(obj instanceof HttpRequest other)) return false;
+            return Objects.equals(method, other.method)
+                    && Objects.equals(path, other.path)
+                    && Objects.equals(version, other.version)
+                    && Objects.equals(headers, other.headers);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(method, path, version, headers);
         }
     }
 }
