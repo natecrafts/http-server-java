@@ -9,6 +9,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class HttpServer {
     final int PORT = 4221;
@@ -18,7 +20,8 @@ public class HttpServer {
 
         // Create a "listening socket" which accepts new connections.
         // This is initially an unbound socket, i.e. it is not yet bound to a port.
-        try (ServerSocket listeningSocket = new ServerSocket()) {
+        try (ServerSocket listeningSocket = new ServerSocket();
+                ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
             // Instruct the kernel to allow reusing a port lingering in the TIME_WAIT
             // state after it was recently closed.
             // Since the tester restarts your program quite often, setting SO_REUSEADDR
@@ -28,27 +31,40 @@ public class HttpServer {
             // Bind the listening socket to a port.
             listeningSocket.bind(new InetSocketAddress(PORT));
 
-            // Wait for connection from client.
-            // For each connection, creates a new "connection socket" that
-            // does the actual communication.
-            try (Socket connectionSocket = listeningSocket.accept()) {
-                System.out.println("Accepted new connection");
-                InputStream in = connectionSocket.getInputStream();
-                OutputStream out = connectionSocket.getOutputStream();
-                handleRequest(in, out);
+            while (true) {
+                // Wait for connection from client.
+                // For each connection, creates a new "connection socket" that does
+                // the actual communication.
+                // The accept call blocks until there is a new connection, and
+                // therefore needs to be outside the lambda passed to executor.execute.
+                // Otherwise, the while loop is never blocked and spawns infinitely many
+                // virtual threads instantly.
+                Socket connectionSocket = listeningSocket.accept();
+                executor.execute(() -> {
+                    try (connectionSocket) {
+                        System.out.println("Accepted new connection");
+                        InputStream in = connectionSocket.getInputStream();
+                        OutputStream out = connectionSocket.getOutputStream();
+                        HttpServer.handleRequest(in, out);
+                    } catch (IOException e) {
+                        System.out.println("IOException: " + e.getMessage());
+                    } catch (HttpException e) {
+                        System.out.println("HttpException: " + e.getMessage());
+                    }
+                });
             }
         } catch (IOException e) {
             System.out.println("IOException: " + e.getMessage());
         }
     }
 
-    static void handleRequest(InputStream in, OutputStream out) throws IOException {
+    static void handleRequest(InputStream in, OutputStream out) throws IOException, HttpException {
         HttpRequest request;
         try {
             request = parseRequest(in);
         } catch (HttpException e) {
             // TODO: Send an appropriate response here.
-            throw new RuntimeException(e);
+            throw new HttpException(e.message);
         }
         if (request.path == null) {
             sendResponse(out, HttpStatus.NOT_FOUND, null, null);

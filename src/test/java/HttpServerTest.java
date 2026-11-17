@@ -128,7 +128,7 @@ public class HttpServerTest {
     @ParameterizedTest(name = "{0}")
     @FieldSource("HANDLE_REQUEST_CASES")
     void shouldHandleRequest(String caseName, String request, String expectedResponse)
-            throws IOException {
+            throws IOException, HttpServer.HttpException {
         ByteArrayInputStream in =
                 new ByteArrayInputStream(request.getBytes(StandardCharsets.US_ASCII));
         ByteArrayOutputStream out = new ByteArrayOutputStream();
