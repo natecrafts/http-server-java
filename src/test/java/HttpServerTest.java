@@ -31,14 +31,28 @@ public class HttpServerTest {
                                     + "Host: localhost:4221\r\n"
                                     + "User-Agent: curl/8.7.1\r\n"
                                     + "Accept: */*\r\n\r\n",
-                            new HttpServer.HttpRequest("GET", "/", "HTTP/1.1", Map.of())),
+                            new HttpServer.HttpRequest(
+                                    "GET",
+                                    "/",
+                                    "HTTP/1.1",
+                                    Map.ofEntries(
+                                            Map.entry("host", "localhost:4221"),
+                                            Map.entry("user-agent", "curl/8.7.1"),
+                                            Map.entry("accept", "*/*")))),
                     Arguments.of(
                             "GET /abcdefg",
                             "GET /abcdefg HTTP/1.1\r\n"
                                     + "Host: localhost:4221\r\n"
                                     + "User-Agent: curl/8.7.1\r\n"
                                     + "Accept: */*\r\n\r\n",
-                            new HttpServer.HttpRequest("GET", "/abcdefg", "HTTP/1.1", Map.of())));
+                            new HttpServer.HttpRequest(
+                                    "GET",
+                                    "/abcdefg",
+                                    "HTTP/1.1",
+                                    Map.ofEntries(
+                                            Map.entry("host", "localhost:4221"),
+                                            Map.entry("user-agent", "curl/8.7.1"),
+                                            Map.entry("accept", "*/*")))));
 
     @ParameterizedTest(name = "{0}")
     @FieldSource("PARSE_REQUEST_CASES")
@@ -98,7 +112,18 @@ public class HttpServerTest {
                                     + "Accept: */*\r\n\r\n",
                             "HTTP/1.1 200 OK\r\n"
                                     + "Content-Type: text/plain\r\n"
-                                    + "Content-Length: 0\r\n\r\n"));
+                                    + "Content-Length: 0\r\n\r\n"),
+                    // /user-agent
+                    Arguments.of(
+                            "GET /user-agent/ -> 200",
+                            "GET /user-agent/ HTTP/1.1\r\n"
+                                    + "Host: localhost:4221\r\n"
+                                    + "User-Agent: foobar/1.2.3\r\n"
+                                    + "Accept: */*\r\n\r\n",
+                            "HTTP/1.1 200 OK\r\n"
+                                    + "Content-Type: text/plain\r\n"
+                                    + "Content-Length: 12\r\n\r\n"
+                                    + "foobar/1.2.3"));
 
     @ParameterizedTest(name = "{0}")
     @FieldSource("HANDLE_REQUEST_CASES")

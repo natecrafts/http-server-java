@@ -63,6 +63,11 @@ public class HttpServer {
             // For example: 'Content-Type: text/plain; charset=utf-8'
             byte[] body = str.getBytes(StandardCharsets.US_ASCII);
             sendResponse(out, HttpStatus.OK, contentType, body);
+        } else if (request.path.startsWith("/user-agent")) {
+            String userAgent = request.headers.get("user-agent");
+            String contentType = "text/plain";
+            byte[] body = userAgent.getBytes(StandardCharsets.US_ASCII);
+            sendResponse(out, HttpStatus.OK, contentType, body);
         } else {
             sendResponse(out, HttpStatus.NOT_FOUND, null, null);
         }
@@ -132,10 +137,22 @@ public class HttpServer {
 
         Map<String, String> headers = new HashMap<>();
         while (true) {
-            String headerLine = parseRequestHeaderLine(in);
-            if (headerLine.isEmpty()) {
+            String fieldLine = parseRequestHeaderLine(in);
+            if (fieldLine.isEmpty()) {
                 break;
             }
+            // According to RFC 9112, section 5, the syntax of each field line is:
+            // field-line = field-name ":" optional-white-space field-value optional-white-space
+            // RFC 9110 defines each optional-white-space to be zero or more spaces or tabs.
+            int colonIdx = fieldLine.indexOf(':');
+            String fieldName = fieldLine.substring(0, colonIdx);
+            int valueIdx = colonIdx + 1;
+            while (valueIdx < fieldLine.length()
+                    && (fieldLine.charAt(valueIdx) == ' ' || fieldLine.charAt(valueIdx) == '\t')) {
+                valueIdx++;
+            }
+            String fieldValue = fieldLine.substring(valueIdx);
+            headers.put(fieldName.toLowerCase(), fieldValue);
         }
 
         return new HttpRequest(method, path, version, headers);
@@ -187,6 +204,23 @@ public class HttpServer {
         @Override
         public int hashCode() {
             return Objects.hash(method, path, version, headers);
+        }
+
+        @Override
+        public String toString() {
+            return "HttpRequest{"
+                    + "method='"
+                    + method
+                    + '\''
+                    + ", path='"
+                    + path
+                    + '\''
+                    + ", version='"
+                    + version
+                    + '\''
+                    + ", headers="
+                    + headers
+                    + '}';
         }
     }
 }
