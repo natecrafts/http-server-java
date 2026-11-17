@@ -48,8 +48,6 @@ public class HttpServer {
                         HttpServer.handleRequest(in, out);
                     } catch (IOException e) {
                         System.out.println("IOException: " + e.getMessage());
-                    } catch (HttpException e) {
-                        System.out.println("HttpException: " + e.getMessage());
                     }
                 });
             }
@@ -58,13 +56,13 @@ public class HttpServer {
         }
     }
 
-    static void handleRequest(InputStream in, OutputStream out) throws IOException, HttpException {
+    static void handleRequest(InputStream in, OutputStream out) throws IOException {
         HttpRequest request;
         try {
             request = parseRequest(in);
         } catch (HttpException e) {
-            // TODO: Send an appropriate response here.
-            throw new HttpException(e.message);
+            sendResponse(out, HttpStatus.BAD_REQUEST, null, null);
+            return;
         }
         if (request.path == null) {
             sendResponse(out, HttpStatus.NOT_FOUND, null, null);
@@ -134,6 +132,8 @@ public class HttpServer {
             } else if (b == '\n') {
                 // RFC 9112 allows bare LF section 2.2.
                 break;
+            } else if (b == -1) {
+                throw new HttpException("Unexpected EOF.");
             }
             buf.write(b);
         }
@@ -176,6 +176,7 @@ public class HttpServer {
 
     static class HttpStatus {
         static final HttpStatus OK = new HttpStatus(200, "OK");
+        static final HttpStatus BAD_REQUEST = new HttpStatus(400, "Bad Request");
         static final HttpStatus NOT_FOUND = new HttpStatus(404, "Not Found");
 
         private final int code;

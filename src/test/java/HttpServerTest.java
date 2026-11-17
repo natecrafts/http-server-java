@@ -93,6 +93,16 @@ public class HttpServerTest {
                                     + "User-Agent: curl/8.7.1\r\n"
                                     + "Accept: */*\r\n\r\n",
                             "HTTP/1.1 404 Not Found\r\n\r\n"),
+                    // 400 Bad Request
+                    Arguments.of("Empty stream -> 400", "", "HTTP/1.1 400 Bad Request\r\n\r\n"),
+                    Arguments.of(
+                            "Truncated request line -> 400",
+                            "GET / HTTP/1.1",
+                            "HTTP/1.1 400 Bad Request\r\n\r\n"),
+                    Arguments.of(
+                            "Truncated headers -> 400",
+                            "GET / HTTP/1.1\r\nHost: localhost:4221\r\n",
+                            "HTTP/1.1 400 Bad Request\r\n\r\n"),
                     // /echo/{msg}
                     Arguments.of(
                             "GET /echo/abc -> 200",
@@ -128,7 +138,7 @@ public class HttpServerTest {
     @ParameterizedTest(name = "{0}")
     @FieldSource("HANDLE_REQUEST_CASES")
     void shouldHandleRequest(String caseName, String request, String expectedResponse)
-            throws IOException, HttpServer.HttpException {
+            throws IOException {
         ByteArrayInputStream in =
                 new ByteArrayInputStream(request.getBytes(StandardCharsets.US_ASCII));
         ByteArrayOutputStream out = new ByteArrayOutputStream();
