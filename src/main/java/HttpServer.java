@@ -6,6 +6,8 @@ import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -14,6 +16,15 @@ import java.util.concurrent.Executors;
 
 public class HttpServer {
     final int PORT = 4221;
+    private final Path directory;
+
+    public HttpServer() {
+        this(null);
+    }
+
+    public HttpServer(Path directory) {
+        this.directory = directory == null ? null : directory.toAbsolutePath().normalize();
+    }
 
     public void run() {
         System.out.println("Starting HTTP server...");
@@ -45,7 +56,7 @@ public class HttpServer {
                         System.out.println("Accepted new connection");
                         InputStream in = connectionSocket.getInputStream();
                         OutputStream out = connectionSocket.getOutputStream();
-                        HttpServer.handleRequest(in, out);
+                        handleRequest(in, out);
                     } catch (IOException e) {
                         System.out.println("IOException: " + e.getMessage());
                     }
@@ -56,7 +67,7 @@ public class HttpServer {
         }
     }
 
-    static void handleRequest(InputStream in, OutputStream out) throws IOException {
+    void handleRequest(InputStream in, OutputStream out) throws IOException {
         HttpRequest request;
         try {
             request = parseRequest(in);
@@ -81,6 +92,22 @@ public class HttpServer {
             String userAgent = request.headers.get("user-agent");
             String contentType = "text/plain";
             byte[] body = userAgent.getBytes(StandardCharsets.US_ASCII);
+            sendResponse(out, HttpStatus.OK, contentType, body);
+        } else if (request.path.startsWith("/files/")) {
+            if (directory == null) {
+                sendResponse(out, HttpStatus.NOT_FOUND, null, null);
+                return;
+            }
+            String fileName = request.path.substring("/files/".length());
+            // We normalize and check if the filePath actually starts with directory
+            // to make sure there is no path traversal.
+            Path filePath = directory.resolve(fileName).normalize();
+            if (!filePath.startsWith(directory) || !Files.isRegularFile(filePath)) {
+                sendResponse(out, HttpStatus.NOT_FOUND, null, null);
+                return;
+            }
+            String contentType = "application/octet-stream";
+            byte[] body = Files.readAllBytes(filePath);
             sendResponse(out, HttpStatus.OK, contentType, body);
         } else {
             sendResponse(out, HttpStatus.NOT_FOUND, null, null);

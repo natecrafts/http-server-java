@@ -1,6 +1,7 @@
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.FieldSource;
@@ -9,6 +10,8 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 
@@ -133,7 +136,15 @@ public class HttpServerTest {
                             "HTTP/1.1 200 OK\r\n"
                                     + "Content-Type: text/plain\r\n"
                                     + "Content-Length: 12\r\n\r\n"
-                                    + "foobar/1.2.3"));
+                                    + "foobar/1.2.3"),
+                    // /files/{filename} without --directory
+                    Arguments.of(
+                            "GET /files/foo without directory -> 404",
+                            "GET /files/foo HTTP/1.1\r\n"
+                                    + "Host: localhost:4221\r\n"
+                                    + "User-Agent: curl/8.7.1\r\n"
+                                    + "Accept: */*\r\n\r\n",
+                            "HTTP/1.1 404 Not Found\r\n\r\n"));
 
     @ParameterizedTest(name = "{0}")
     @FieldSource("HANDLE_REQUEST_CASES")
@@ -143,7 +154,59 @@ public class HttpServerTest {
                 new ByteArrayInputStream(request.getBytes(StandardCharsets.US_ASCII));
         ByteArrayOutputStream out = new ByteArrayOutputStream();
 
-        HttpServer.handleRequest(in, out);
+        new HttpServer().handleRequest(in, out);
+
+        assertEquals(expectedResponse, out.toString(StandardCharsets.US_ASCII));
+    }
+
+    private static final List<Arguments> HANDLE_FILE_REQUEST_CASES =
+            List.of(
+                    Arguments.of(
+                            "Existing file -> 200",
+                            "GET /files/foo HTTP/1.1\r\n"
+                                    + "Host: localhost:4221\r\n"
+                                    + "User-Agent: curl/8.7.1\r\n"
+                                    + "Accept: */*\r\n\r\n",
+                            "HTTP/1.1 200 OK\r\n"
+                                    + "Content-Type: application/octet-stream\r\n"
+                                    + "Content-Length: 11\r\n\r\n"
+                                    + "hello world"),
+                    Arguments.of(
+                            "Missing file -> 404",
+                            "GET /files/missing HTTP/1.1\r\n"
+                                    + "Host: localhost:4221\r\n"
+                                    + "User-Agent: curl/8.7.1\r\n"
+                                    + "Accept: */*\r\n\r\n",
+                            "HTTP/1.1 404 Not Found\r\n\r\n"),
+                    Arguments.of(
+                            "Directory path -> 404",
+                            "GET /files/ HTTP/1.1\r\n"
+                                    + "Host: localhost:4221\r\n"
+                                    + "User-Agent: curl/8.7.1\r\n"
+                                    + "Accept: */*\r\n\r\n",
+                            "HTTP/1.1 404 Not Found\r\n\r\n"),
+                    Arguments.of(
+                            "Path traversal -> 404",
+                            "GET /files/../secret.txt HTTP/1.1\r\n"
+                                    + "Host: localhost:4221\r\n"
+                                    + "User-Agent: curl/8.7.1\r\n"
+                                    + "Accept: */*\r\n\r\n",
+                            "HTTP/1.1 404 Not Found\r\n\r\n"));
+
+    @ParameterizedTest(name = "{0}")
+    @FieldSource("HANDLE_FILE_REQUEST_CASES")
+    void shouldHandleFileRequest(
+            String caseName, String request, String expectedResponse, @TempDir Path tempDir)
+            throws IOException {
+        Path servedDir = Files.createDirectory(tempDir.resolve("served"));
+        Files.writeString(servedDir.resolve("foo"), "hello world", StandardCharsets.US_ASCII);
+        Files.writeString(tempDir.resolve("secret.txt"), "top secret", StandardCharsets.US_ASCII);
+
+        ByteArrayInputStream in =
+                new ByteArrayInputStream(request.getBytes(StandardCharsets.US_ASCII));
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+
+        new HttpServer(servedDir).handleRequest(in, out);
 
         assertEquals(expectedResponse, out.toString(StandardCharsets.US_ASCII));
     }
