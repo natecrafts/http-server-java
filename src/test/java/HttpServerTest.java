@@ -18,16 +18,6 @@ import java.util.List;
 import java.util.Map;
 
 public class HttpServerTest {
-    @Test
-    void shouldSend200OkResponse() throws IOException {
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        HttpServer.sendResponse(out, HttpServer.HttpStatus.OK, null, null);
-
-        String expected = "HTTP/1.1 200 OK\r\n\r\n";
-        String actual = out.toString(StandardCharsets.US_ASCII);
-        assertEquals(expected, actual);
-    }
-
     private static final List<Arguments> PARSE_REQUEST_CASES =
             List.of(
                     Arguments.of(
@@ -99,15 +89,18 @@ public class HttpServerTest {
                                     + "Accept: */*\r\n\r\n",
                             "HTTP/1.1 404 Not Found\r\n\r\n"),
                     // 400 Bad Request
-                    Arguments.of("Empty stream -> 400", "", "HTTP/1.1 400 Bad Request\r\n\r\n"),
+                    Arguments.of(
+                            "Empty stream -> 400",
+                            "",
+                            "HTTP/1.1 400 Bad Request\r\n" + "Connection: close\r\n\r\n"),
                     Arguments.of(
                             "Truncated request line -> 400",
                             "GET / HTTP/1.1",
-                            "HTTP/1.1 400 Bad Request\r\n\r\n"),
+                            "HTTP/1.1 400 Bad Request\r\n" + "Connection: close\r\n\r\n"),
                     Arguments.of(
                             "Truncated headers -> 400",
                             "GET / HTTP/1.1\r\nHost: localhost:4221\r\n",
-                            "HTTP/1.1 400 Bad Request\r\n\r\n"),
+                            "HTTP/1.1 400 Bad Request\r\n" + "Connection: close\r\n\r\n"),
                     // /echo/{msg}
                     Arguments.of(
                             "GET /echo/abc -> 200",
@@ -226,7 +219,7 @@ public class HttpServerTest {
     void shouldHandlePostFilesRequest(@TempDir Path tempDir) throws IOException {
         Path servedDir = Files.createDirectory(tempDir.resolve("served"));
         String requestBody = "12345";
-        String request =
+        String rawRequest =
                 "POST /files/number HTTP/1.1\r\n"
                         + "Host: localhost:4221\r\n"
                         + "User-Agent: curl/8.7.1\r\n"
@@ -234,14 +227,15 @@ public class HttpServerTest {
                         + "Content-Type: application/octet-stream\r\n"
                         + "Content-Length: 5\r\n\r\n"
                         + requestBody;
+        byte[] request = rawRequest.getBytes(StandardCharsets.US_ASCII);
 
-        ByteArrayInputStream in =
-                new ByteArrayInputStream(request.getBytes(StandardCharsets.US_ASCII));
+        ByteArrayInputStream in = new ByteArrayInputStream(request);
         ByteArrayOutputStream out = new ByteArrayOutputStream();
 
-        new HttpServer(servedDir).handleRequest(in, out);
-        String fileContent =
-                Files.readString(servedDir.resolve("number"), StandardCharsets.US_ASCII);
+        HttpServer server = new HttpServer(servedDir);
+        server.handleRequest(in, out);
+        Path filePath = servedDir.resolve("number");
+        String fileContent = Files.readString(filePath, StandardCharsets.US_ASCII);
 
         assertEquals("HTTP/1.1 201 Created\r\n\r\n", out.toString(StandardCharsets.US_ASCII));
         assertEquals(requestBody, fileContent);
@@ -280,5 +274,44 @@ public class HttpServerTest {
         HttpServer server = new HttpServer();
         boolean persistingConnection = server.handleRequest(in, out);
         assertFalse(persistingConnection);
+    }
+
+    @Test
+    void shouldHandlePersistentConnection() throws IOException {
+        String rawRequest1 =
+                "GET /echo/first HTTP/1.1\r\n"
+                        + "Host: localhost:4221\r\n"
+                        + "User-Agent: curl/8.7.1\r\n"
+                        + "Accept: */*\r\n\r\n";
+        String rawRequest2 =
+                "GET /user-agent HTTP/1.1\r\n"
+                        + "Host: localhost:4221\r\n"
+                        + "User-Agent: foobar/1.2.3\r\n"
+                        + "Accept: */*\r\n"
+                        + "Connection: close\r\n\r\n";
+        String rawRequests = rawRequest1 + rawRequest2;
+        byte[] requests = rawRequests.getBytes(StandardCharsets.US_ASCII);
+
+        ByteArrayInputStream in = new ByteArrayInputStream(requests);
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        HttpServer server = new HttpServer();
+
+        String expectedResponse1 =
+                "HTTP/1.1 200 OK\r\n"
+                        + "Content-Type: text/plain\r\n"
+                        + "Content-Length: 5\r\n\r\n"
+                        + "first";
+        String expectedResponse2 =
+                "HTTP/1.1 200 OK\r\n"
+                        + "Content-Type: text/plain\r\n"
+                        + "Content-Length: 12\r\n"
+                        + "Connection: close\r\n\r\n"
+                        + "foobar/1.2.3";
+
+        String expectedResponses = expectedResponse1 + expectedResponse2;
+
+        assertTrue(server.handleRequest(in, out));
+        assertFalse(server.handleRequest(in, out));
+        assertEquals(expectedResponses, out.toString(StandardCharsets.US_ASCII));
     }
 }

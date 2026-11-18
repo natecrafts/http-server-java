@@ -81,13 +81,15 @@ public class HttpServer {
         try {
             request = parseRequest(in);
         } catch (HttpException e) {
-            sendResponse(out, HttpStatus.BAD_REQUEST, null, null);
+            sendResponse(out, HttpStatus.BAD_REQUEST, true, null, null);
             return false;
         }
+        boolean closingConnection =
+                Objects.equals(request.headers.getOrDefault("connection", null), "close");
         if (request.path == null) {
-            sendResponse(out, HttpStatus.NOT_FOUND, null, null);
+            sendResponse(out, HttpStatus.NOT_FOUND, true, null, null);
         } else if (request.path.equals("/")) {
-            sendResponse(out, HttpStatus.OK, null, null);
+            sendResponse(out, HttpStatus.OK, closingConnection, null, null);
         } else if (request.path.startsWith("/echo/")) {
             String str = request.path.substring("/echo/".length());
             String contentType = "text/plain";
@@ -96,17 +98,17 @@ public class HttpServer {
             // includes a charset.
             // For example: 'Content-Type: text/plain; charset=utf-8'
             byte[] body = str.getBytes(StandardCharsets.US_ASCII);
-            sendResponse(out, HttpStatus.OK, contentType, body);
+            sendResponse(out, HttpStatus.OK, closingConnection, contentType, body);
         } else if (request.path.startsWith("/user-agent")) {
             String userAgent = request.headers.get("user-agent");
             String contentType = "text/plain";
             byte[] body = userAgent.getBytes(StandardCharsets.US_ASCII);
-            sendResponse(out, HttpStatus.OK, contentType, body);
+            sendResponse(out, HttpStatus.OK, closingConnection, contentType, body);
         } else if (request.path.startsWith("/files/")) {
             String fileName = request.path.substring("/files/".length());
             if (request.method.equals("GET")) {
                 if (directory == null) {
-                    sendResponse(out, HttpStatus.NOT_FOUND, null, null);
+                    sendResponse(out, HttpStatus.NOT_FOUND, closingConnection, null, null);
                     return false;
                 }
                 // We normalize and check if the filePath actually starts with directory
@@ -114,15 +116,15 @@ public class HttpServer {
                 // NOT_FOUND.
                 Path filePath = directory.resolve(fileName).normalize();
                 if (!filePath.startsWith(directory) || !Files.isRegularFile(filePath)) {
-                    sendResponse(out, HttpStatus.NOT_FOUND, null, null);
+                    sendResponse(out, HttpStatus.NOT_FOUND, closingConnection, null, null);
                     return false;
                 }
                 String contentType = "application/octet-stream";
                 byte[] body = Files.readAllBytes(filePath);
-                sendResponse(out, HttpStatus.OK, contentType, body);
+                sendResponse(out, HttpStatus.OK, closingConnection, contentType, body);
             } else if (request.method.equals("POST")) {
                 if (directory == null) {
-                    sendResponse(out, HttpStatus.BAD_REQUEST, null, null);
+                    sendResponse(out, HttpStatus.BAD_REQUEST, closingConnection, null, null);
                     return false;
                 }
                 // We normalize and check if the filePath actually starts with directory
@@ -130,21 +132,26 @@ public class HttpServer {
                 // BAD_REQUEST instead of NOT_FOUND.
                 Path filePath = directory.resolve(fileName).normalize();
                 if (request.body == null || !filePath.startsWith(directory) || fileName.isEmpty()) {
-                    sendResponse(out, HttpStatus.BAD_REQUEST, null, null);
+                    sendResponse(out, HttpStatus.BAD_REQUEST, closingConnection, null, null);
                     return false;
                 }
                 Files.write(filePath, request.body);
-                sendResponse(out, HttpStatus.CREATED, null, null);
+                sendResponse(out, HttpStatus.CREATED, closingConnection, null, null);
             } else {
-                sendResponse(out, HttpStatus.METHOD_NOT_ALLOWED, null, null);
+                sendResponse(out, HttpStatus.METHOD_NOT_ALLOWED, closingConnection, null, null);
             }
         } else {
-            sendResponse(out, HttpStatus.NOT_FOUND, null, null);
+            sendResponse(out, HttpStatus.NOT_FOUND, closingConnection, null, null);
         }
-        return !Objects.equals(request.headers.getOrDefault("connection", null), "close");
+        return !closingConnection;
     }
 
-    static void sendResponse(OutputStream out, HttpStatus status, String contentType, byte[] body)
+    static void sendResponse(
+            OutputStream out,
+            HttpStatus status,
+            boolean closingConnection,
+            String contentType,
+            byte[] body)
             throws IOException {
         // Use a byte buffer to minimize the number of syscalls taken to send the response.
         ByteArrayOutputStream buf = new ByteArrayOutputStream();
@@ -161,6 +168,9 @@ public class HttpServer {
         }
         if (body != null) {
             header.append("Content-Length: ").append(body.length).append("\r\n");
+        }
+        if (closingConnection) {
+            header.append("Connection: close").append("\r\n");
         }
 
         header.append("\r\n");
