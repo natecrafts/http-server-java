@@ -8,6 +8,7 @@ import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -94,21 +95,41 @@ public class HttpServer {
             byte[] body = userAgent.getBytes(StandardCharsets.US_ASCII);
             sendResponse(out, HttpStatus.OK, contentType, body);
         } else if (request.path.startsWith("/files/")) {
-            if (directory == null) {
-                sendResponse(out, HttpStatus.NOT_FOUND, null, null);
-                return;
-            }
             String fileName = request.path.substring("/files/".length());
-            // We normalize and check if the filePath actually starts with directory
-            // to make sure there is no path traversal.
-            Path filePath = directory.resolve(fileName).normalize();
-            if (!filePath.startsWith(directory) || !Files.isRegularFile(filePath)) {
-                sendResponse(out, HttpStatus.NOT_FOUND, null, null);
-                return;
+            if (request.method.equals("GET")) {
+                if (directory == null) {
+                    sendResponse(out, HttpStatus.NOT_FOUND, null, null);
+                    return;
+                }
+                // We normalize and check if the filePath actually starts with directory
+                // to make sure there is no path traversal. If there is an issue, return
+                // NOT_FOUND.
+                Path filePath = directory.resolve(fileName).normalize();
+                if (!filePath.startsWith(directory) || !Files.isRegularFile(filePath)) {
+                    sendResponse(out, HttpStatus.NOT_FOUND, null, null);
+                    return;
+                }
+                String contentType = "application/octet-stream";
+                byte[] body = Files.readAllBytes(filePath);
+                sendResponse(out, HttpStatus.OK, contentType, body);
+            } else if (request.method.equals("POST")) {
+                if (directory == null) {
+                    sendResponse(out, HttpStatus.BAD_REQUEST, null, null);
+                    return;
+                }
+                // We normalize and check if the filePath actually starts with directory
+                // to make sure there is no path traversal. If there is an issue, return
+                // BAD_REQUEST instead of NOT_FOUND.
+                Path filePath = directory.resolve(fileName).normalize();
+                if (request.body == null || !filePath.startsWith(directory) || fileName.isEmpty()) {
+                    sendResponse(out, HttpStatus.BAD_REQUEST, null, null);
+                    return;
+                }
+                Files.write(filePath, request.body);
+                sendResponse(out, HttpStatus.CREATED, null, null);
+            } else {
+                sendResponse(out, HttpStatus.METHOD_NOT_ALLOWED, null, null);
             }
-            String contentType = "application/octet-stream";
-            byte[] body = Files.readAllBytes(filePath);
-            sendResponse(out, HttpStatus.OK, contentType, body);
         } else {
             sendResponse(out, HttpStatus.NOT_FOUND, null, null);
         }
@@ -198,13 +219,25 @@ public class HttpServer {
             headers.put(fieldName.toLowerCase(), fieldValue);
         }
 
-        return new HttpRequest(method, path, version, headers);
+        byte[] body = null;
+
+        if (headers.containsKey("content-length")) {
+            int contentLength = Integer.parseInt(headers.get("content-length"));
+            body = in.readNBytes(contentLength);
+            if (body.length < contentLength) {
+                throw new HttpException("Unexpected EOF while reading request body");
+            }
+        }
+
+        return new HttpRequest(method, path, version, headers, body);
     }
 
     static class HttpStatus {
         static final HttpStatus OK = new HttpStatus(200, "OK");
+        static final HttpStatus CREATED = new HttpStatus(201, "Created");
         static final HttpStatus BAD_REQUEST = new HttpStatus(400, "Bad Request");
         static final HttpStatus NOT_FOUND = new HttpStatus(404, "Not Found");
+        static final HttpStatus METHOD_NOT_ALLOWED = new HttpStatus(405, "Method Not Allowed");
 
         private final int code;
         private final String reason;
@@ -228,12 +261,18 @@ public class HttpServer {
         String path;
         String version;
         Map<String, String> headers;
+        byte[] body;
 
         HttpRequest(String method, String path, String version, Map<String, String> headers) {
+            this(method, path, version, headers, null);
+        }
+
+        HttpRequest(String method, String path, String version, Map<String, String> headers, byte[] body) {
             this.method = method;
             this.path = path;
             this.version = version;
             this.headers = headers;
+            this.body = body;
         }
 
         @Override
@@ -242,7 +281,8 @@ public class HttpServer {
             return Objects.equals(method, other.method)
                     && Objects.equals(path, other.path)
                     && Objects.equals(version, other.version)
-                    && Objects.equals(headers, other.headers);
+                    && Objects.equals(headers, other.headers)
+                    && Arrays.equals(body, other.body);
         }
 
         @Override

@@ -195,7 +195,7 @@ public class HttpServerTest {
 
     @ParameterizedTest(name = "{0}")
     @FieldSource("HANDLE_FILE_REQUEST_CASES")
-    void shouldHandleFileRequest(
+    void shouldHandleGetFilesRequest(
             String caseName, String request, String expectedResponse, @TempDir Path tempDir)
             throws IOException {
         Path servedDir = Files.createDirectory(tempDir.resolve("served"));
@@ -209,5 +209,30 @@ public class HttpServerTest {
         new HttpServer(servedDir).handleRequest(in, out);
 
         assertEquals(expectedResponse, out.toString(StandardCharsets.US_ASCII));
+    }
+
+    @Test
+    void shouldHandlePostFilesRequest(@TempDir Path tempDir) throws IOException {
+        Path servedDir = Files.createDirectory(tempDir.resolve("served"));
+        String body = "12345";
+        String request =
+                "POST /files/number HTTP/1.1\r\n"
+                        + "Host: localhost:4221\r\n"
+                        + "User-Agent: curl/8.7.1\r\n"
+                        + "Accept: */*\r\n"
+                        + "Content-Type: application/octet-stream\r\n"
+                        + "Content-Length: 5\r\n\r\n"
+                        + body;
+
+        ByteArrayInputStream in =
+                new ByteArrayInputStream(request.getBytes(StandardCharsets.US_ASCII));
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+
+        new HttpServer(servedDir).handleRequest(in, out);
+
+        assertEquals("HTTP/1.1 201 Created\r\n\r\n",
+                out.toString(StandardCharsets.US_ASCII));
+        assertEquals(body, Files.readString(servedDir.resolve("number"),
+                StandardCharsets.US_ASCII));
     }
 }
