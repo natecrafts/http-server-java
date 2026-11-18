@@ -150,13 +150,14 @@ public class HttpServerTest {
 
     @ParameterizedTest(name = "{0}")
     @FieldSource("HANDLE_REQUEST_CASES")
-    void shouldHandleRequest(String caseName, String request, String expectedResponse)
+    void shouldHandleRequest(String caseName, String rawRequest, String expectedResponse)
             throws IOException {
-        ByteArrayInputStream in =
-                new ByteArrayInputStream(request.getBytes(StandardCharsets.US_ASCII));
+        byte[] request = rawRequest.getBytes(StandardCharsets.US_ASCII);
+        ByteArrayInputStream in = new ByteArrayInputStream(request);
         ByteArrayOutputStream out = new ByteArrayOutputStream();
 
-        new HttpServer().handleRequest(in, out);
+        HttpServer server = new HttpServer();
+        server.handleRequest(in, out);
 
         assertEquals(expectedResponse, out.toString(StandardCharsets.US_ASCII));
     }
@@ -198,25 +199,33 @@ public class HttpServerTest {
     @ParameterizedTest(name = "{0}")
     @FieldSource("HANDLE_FILE_REQUEST_CASES")
     void shouldHandleGetFilesRequest(
-            String caseName, String request, String expectedResponse, @TempDir Path tempDir)
+            String caseName, String rawRequest, String expectedResponse, @TempDir Path tempDir)
             throws IOException {
-        Path servedDir = Files.createDirectory(tempDir.resolve("served"));
-        Files.writeString(servedDir.resolve("foo"), "hello world", StandardCharsets.US_ASCII);
-        Files.writeString(tempDir.resolve("secret.txt"), "top secret", StandardCharsets.US_ASCII);
+        Path serveDir = Files.createDirectory(tempDir.resolve("served"));
 
-        ByteArrayInputStream in =
-                new ByteArrayInputStream(request.getBytes(StandardCharsets.US_ASCII));
+        Path regularFile = serveDir.resolve("foo");
+        String regularContent = "hello world";
+        Files.writeString(regularFile, regularContent, StandardCharsets.US_ASCII);
+
+        // The secret file is outside the serve dir. Use it to test for path traversal.
+        Path secretFile = tempDir.resolve("secret.txt");
+        String secretContent = "top secret";
+        Files.writeString(secretFile, secretContent, StandardCharsets.US_ASCII);
+
+        byte[] request = rawRequest.getBytes(StandardCharsets.US_ASCII);
+
+        ByteArrayInputStream in = new ByteArrayInputStream(request);
         ByteArrayOutputStream out = new ByteArrayOutputStream();
 
-        new HttpServer(servedDir).handleRequest(in, out);
-
+        HttpServer server = new HttpServer(serveDir);
+        server.handleRequest(in, out);
         assertEquals(expectedResponse, out.toString(StandardCharsets.US_ASCII));
     }
 
     @Test
     void shouldHandlePostFilesRequest(@TempDir Path tempDir) throws IOException {
         Path servedDir = Files.createDirectory(tempDir.resolve("served"));
-        String body = "12345";
+        String requestBody = "12345";
         String request =
                 "POST /files/number HTTP/1.1\r\n"
                         + "Host: localhost:4221\r\n"
@@ -224,17 +233,18 @@ public class HttpServerTest {
                         + "Accept: */*\r\n"
                         + "Content-Type: application/octet-stream\r\n"
                         + "Content-Length: 5\r\n\r\n"
-                        + body;
+                        + requestBody;
 
         ByteArrayInputStream in =
                 new ByteArrayInputStream(request.getBytes(StandardCharsets.US_ASCII));
         ByteArrayOutputStream out = new ByteArrayOutputStream();
 
         new HttpServer(servedDir).handleRequest(in, out);
+        String fileContent =
+                Files.readString(servedDir.resolve("number"), StandardCharsets.US_ASCII);
 
         assertEquals("HTTP/1.1 201 Created\r\n\r\n", out.toString(StandardCharsets.US_ASCII));
-        assertEquals(
-                body, Files.readString(servedDir.resolve("number"), StandardCharsets.US_ASCII));
+        assertEquals(requestBody, fileContent);
     }
 
     @Test
