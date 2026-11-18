@@ -57,7 +57,7 @@ public class HttpServer {
                         System.out.println("Accepted new connection");
                         InputStream in = connectionSocket.getInputStream();
                         OutputStream out = connectionSocket.getOutputStream();
-                        handleRequest(in, out);
+                        while (handleRequest(in, out)) {}
                     } catch (IOException e) {
                         System.out.println("IOException: " + e.getMessage());
                     }
@@ -68,13 +68,21 @@ public class HttpServer {
         }
     }
 
-    void handleRequest(InputStream in, OutputStream out) throws IOException {
+    /**
+     * Handle a single request.
+     *
+     * @param in The input stream from which the incoming request can be read.
+     * @param out The output stream to which the response can be written.
+     * @return true if the connection should be persistent.
+     * @throws IOException in case there is an {@link IOException}.
+     */
+    boolean handleRequest(InputStream in, OutputStream out) throws IOException {
         HttpRequest request;
         try {
             request = parseRequest(in);
         } catch (HttpException e) {
             sendResponse(out, HttpStatus.BAD_REQUEST, null, null);
-            return;
+            return false;
         }
         if (request.path == null) {
             sendResponse(out, HttpStatus.NOT_FOUND, null, null);
@@ -99,7 +107,7 @@ public class HttpServer {
             if (request.method.equals("GET")) {
                 if (directory == null) {
                     sendResponse(out, HttpStatus.NOT_FOUND, null, null);
-                    return;
+                    return false;
                 }
                 // We normalize and check if the filePath actually starts with directory
                 // to make sure there is no path traversal. If there is an issue, return
@@ -107,7 +115,7 @@ public class HttpServer {
                 Path filePath = directory.resolve(fileName).normalize();
                 if (!filePath.startsWith(directory) || !Files.isRegularFile(filePath)) {
                     sendResponse(out, HttpStatus.NOT_FOUND, null, null);
-                    return;
+                    return false;
                 }
                 String contentType = "application/octet-stream";
                 byte[] body = Files.readAllBytes(filePath);
@@ -115,7 +123,7 @@ public class HttpServer {
             } else if (request.method.equals("POST")) {
                 if (directory == null) {
                     sendResponse(out, HttpStatus.BAD_REQUEST, null, null);
-                    return;
+                    return false;
                 }
                 // We normalize and check if the filePath actually starts with directory
                 // to make sure there is no path traversal. If there is an issue, return
@@ -123,7 +131,7 @@ public class HttpServer {
                 Path filePath = directory.resolve(fileName).normalize();
                 if (request.body == null || !filePath.startsWith(directory) || fileName.isEmpty()) {
                     sendResponse(out, HttpStatus.BAD_REQUEST, null, null);
-                    return;
+                    return false;
                 }
                 Files.write(filePath, request.body);
                 sendResponse(out, HttpStatus.CREATED, null, null);
@@ -133,6 +141,7 @@ public class HttpServer {
         } else {
             sendResponse(out, HttpStatus.NOT_FOUND, null, null);
         }
+        return !Objects.equals(request.headers.getOrDefault("connection", null), "close");
     }
 
     static void sendResponse(OutputStream out, HttpStatus status, String contentType, byte[] body)
@@ -267,7 +276,12 @@ public class HttpServer {
             this(method, path, version, headers, null);
         }
 
-        HttpRequest(String method, String path, String version, Map<String, String> headers, byte[] body) {
+        HttpRequest(
+                String method,
+                String path,
+                String version,
+                Map<String, String> headers,
+                byte[] body) {
             this.method = method;
             this.path = path;
             this.version = version;

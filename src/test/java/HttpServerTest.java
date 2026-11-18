@@ -1,4 +1,6 @@
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -230,9 +232,43 @@ public class HttpServerTest {
 
         new HttpServer(servedDir).handleRequest(in, out);
 
-        assertEquals("HTTP/1.1 201 Created\r\n\r\n",
-                out.toString(StandardCharsets.US_ASCII));
-        assertEquals(body, Files.readString(servedDir.resolve("number"),
-                StandardCharsets.US_ASCII));
+        assertEquals("HTTP/1.1 201 Created\r\n\r\n", out.toString(StandardCharsets.US_ASCII));
+        assertEquals(
+                body, Files.readString(servedDir.resolve("number"), StandardCharsets.US_ASCII));
+    }
+
+    @Test
+    void shouldPersistConnectionByDefault() throws IOException {
+        String rawRequest =
+                "GET / HTTP/1.1\r\n"
+                        + "Host: localhost:4221\r\n"
+                        + "User-Agent: curl/8.7.1\r\n"
+                        + "Accept: */*\r\n\r\n";
+        byte[] request = rawRequest.getBytes(StandardCharsets.US_ASCII);
+
+        ByteArrayInputStream in = new ByteArrayInputStream(request);
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+
+        HttpServer server = new HttpServer();
+        boolean persistingConnection = server.handleRequest(in, out);
+        assertTrue(persistingConnection);
+    }
+
+    @Test
+    void shouldCloseConnectionWithHeader() throws IOException {
+        String rawRequest =
+                "GET / HTTP/1.1\r\n"
+                        + "Host: localhost:4221\r\n"
+                        + "User-Agent: curl/8.7.1\r\n"
+                        + "Accept: */*\r\n"
+                        + "Connection: close\r\n\r\n";
+        byte[] request = rawRequest.getBytes(StandardCharsets.US_ASCII);
+
+        ByteArrayInputStream in = new ByteArrayInputStream(request);
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+
+        HttpServer server = new HttpServer();
+        boolean persistingConnection = server.handleRequest(in, out);
+        assertFalse(persistingConnection);
     }
 }
