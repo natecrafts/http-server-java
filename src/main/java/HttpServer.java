@@ -12,11 +12,13 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class HttpServer {
     final int PORT = 4221;
+    final Set<String> SUPPORTED_ENCODINGS = Set.of("gzip");
     private final Path directory;
 
     public HttpServer() {
@@ -81,68 +83,91 @@ public class HttpServer {
         try {
             request = parseRequest(in);
         } catch (HttpException e) {
-            sendResponse(out, HttpStatus.BAD_REQUEST, true, null, null);
+            sendResponse(out, HttpStatus.BAD_REQUEST, true, null, null, null);
             return false;
         }
+
+        HttpStatus status;
         boolean closingConnection =
                 Objects.equals(request.headers.getOrDefault("connection", null), "close");
+        String acceptEncoding = request.headers.getOrDefault("accept-encoding", null);
+        String contentEncoding = null;
+        if (acceptEncoding != null && SUPPORTED_ENCODINGS.contains(acceptEncoding)) {
+            contentEncoding = acceptEncoding;
+        }
+        String contentType = null;
+        byte[] body = null;
+
         if (request.path == null) {
-            sendResponse(out, HttpStatus.NOT_FOUND, true, null, null);
+            // NOTE: When the status is NOT_FOUND, we normally do not close the connection
+            // unless the request has the 'Connection: close' header.
+            status = HttpStatus.NOT_FOUND;
         } else if (request.path.equals("/")) {
-            sendResponse(out, HttpStatus.OK, closingConnection, null, null);
+            status = HttpStatus.OK;
         } else if (request.path.startsWith("/echo/")) {
             String str = request.path.substring("/echo/".length());
-            String contentType = "text/plain";
+            status = HttpStatus.OK;
+            contentType = "text/plain";
             // According to RFC 6657, we use the US_ASCII charset for content type
             // text/plain by default, unless the content type header also explicitly
             // includes a charset.
             // For example: 'Content-Type: text/plain; charset=utf-8'
-            byte[] body = str.getBytes(StandardCharsets.US_ASCII);
-            sendResponse(out, HttpStatus.OK, closingConnection, contentType, body);
+            body = str.getBytes(StandardCharsets.US_ASCII);
         } else if (request.path.startsWith("/user-agent")) {
+            status = HttpStatus.OK;
             String userAgent = request.headers.get("user-agent");
-            String contentType = "text/plain";
-            byte[] body = userAgent.getBytes(StandardCharsets.US_ASCII);
-            sendResponse(out, HttpStatus.OK, closingConnection, contentType, body);
+            contentType = "text/plain";
+            body = userAgent.getBytes(StandardCharsets.US_ASCII);
         } else if (request.path.startsWith("/files/")) {
             String fileName = request.path.substring("/files/".length());
             if (request.method.equals("GET")) {
-                if (directory == null) {
-                    sendResponse(out, HttpStatus.NOT_FOUND, closingConnection, null, null);
-                    return false;
-                }
                 // We normalize and check if the filePath actually starts with directory
                 // to make sure there is no path traversal. If there is an issue, return
                 // NOT_FOUND.
-                Path filePath = directory.resolve(fileName).normalize();
-                if (!filePath.startsWith(directory) || !Files.isRegularFile(filePath)) {
-                    sendResponse(out, HttpStatus.NOT_FOUND, closingConnection, null, null);
-                    return false;
-                }
-                String contentType = "application/octet-stream";
-                byte[] body = Files.readAllBytes(filePath);
-                sendResponse(out, HttpStatus.OK, closingConnection, contentType, body);
-            } else if (request.method.equals("POST")) {
+                Path filePath;
                 if (directory == null) {
-                    sendResponse(out, HttpStatus.BAD_REQUEST, closingConnection, null, null);
-                    return false;
+                    filePath = null;
+                } else {
+                    filePath = directory.resolve(fileName).normalize();
                 }
+                if (filePath == null
+                        || !filePath.startsWith(directory)
+                        || !Files.isRegularFile(filePath)) {
+                    status = HttpStatus.NOT_FOUND;
+                } else {
+                    status = HttpStatus.OK;
+                    contentType = "application/octet-stream";
+                    body = Files.readAllBytes(filePath);
+                }
+            } else if (request.method.equals("POST")) {
                 // We normalize and check if the filePath actually starts with directory
                 // to make sure there is no path traversal. If there is an issue, return
                 // BAD_REQUEST instead of NOT_FOUND.
-                Path filePath = directory.resolve(fileName).normalize();
-                if (request.body == null || !filePath.startsWith(directory) || fileName.isEmpty()) {
-                    sendResponse(out, HttpStatus.BAD_REQUEST, closingConnection, null, null);
-                    return false;
+                Path filePath;
+                if (directory == null) {
+                    filePath = null;
+                } else {
+                    filePath = directory.resolve(fileName).normalize();
                 }
-                Files.write(filePath, request.body);
-                sendResponse(out, HttpStatus.CREATED, closingConnection, null, null);
+                if (request.body == null
+                        || filePath == null
+                        || !filePath.startsWith(directory)
+                        || fileName.isEmpty()) {
+                    status = HttpStatus.BAD_REQUEST;
+                    closingConnection = true;
+                } else {
+                    Files.write(filePath, request.body);
+                    status = HttpStatus.CREATED;
+                }
             } else {
-                sendResponse(out, HttpStatus.METHOD_NOT_ALLOWED, closingConnection, null, null);
+                status = HttpStatus.METHOD_NOT_ALLOWED;
             }
         } else {
-            sendResponse(out, HttpStatus.NOT_FOUND, closingConnection, null, null);
+            // NOTE: When the status is NOT_FOUND, we normally do not close the connection
+            // unless the request has the 'Connection: close' header.
+            status = HttpStatus.NOT_FOUND;
         }
+        sendResponse(out, status, closingConnection, contentEncoding, contentType, body);
         return !closingConnection;
     }
 
@@ -150,6 +175,7 @@ public class HttpServer {
             OutputStream out,
             HttpStatus status,
             boolean closingConnection,
+            String contentEncoding,
             String contentType,
             byte[] body)
             throws IOException {
@@ -163,6 +189,9 @@ public class HttpServer {
         header.append("\r\n");
 
         // Header lines
+        if (contentEncoding != null) {
+            header.append("Content-Encoding: ").append(contentEncoding).append("\r\n");
+        }
         if (contentType != null) {
             header.append("Content-Type: ").append(contentType).append("\r\n");
         }

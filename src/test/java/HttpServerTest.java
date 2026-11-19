@@ -139,7 +139,33 @@ public class HttpServerTest {
                                     + "Host: localhost:4221\r\n"
                                     + "User-Agent: curl/8.7.1\r\n"
                                     + "Accept: */*\r\n\r\n",
-                            "HTTP/1.1 404 Not Found\r\n\r\n"));
+                            "HTTP/1.1 404 Not Found\r\n\r\n"),
+                    // Accept-Encoding and Content-Encoding
+                    Arguments.of(
+                            "Request with Accept-Encoding: gzip -> Response with Content-Encoding:"
+                                + " gzip gzip",
+                            "GET /echo/abc HTTP/1.1\r\n"
+                                    + "Host: localhost:4221\r\n"
+                                    + "User-Agent: curl/8.7.1\r\n"
+                                    + "Accept: */*\r\n"
+                                    + "Accept-Encoding: gzip\r\n\r\n",
+                            "HTTP/1.1 200 OK\r\n"
+                                    + "Content-Encoding: gzip\r\n"
+                                    + "Content-Type: text/plain\r\n"
+                                    + "Content-Length: 3\r\n\r\n"
+                                    + "abc"),
+                    Arguments.of(
+                            "Request with Accept-Encoding: invalid-encoding -> Response without"
+                                + " Content-Encoding gzip",
+                            "GET /echo/abc HTTP/1.1\r\n"
+                                    + "Host: localhost:4221\r\n"
+                                    + "User-Agent: curl/8.7.1\r\n"
+                                    + "Accept: */*\r\n"
+                                    + "Accept-Encoding: invalid-encoding\r\n\r\n",
+                            "HTTP/1.1 200 OK\r\n"
+                                    + "Content-Type: text/plain\r\n"
+                                    + "Content-Length: 3\r\n\r\n"
+                                    + "abc"));
 
     @ParameterizedTest(name = "{0}")
     @FieldSource("HANDLE_REQUEST_CASES")
