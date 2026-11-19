@@ -1,3 +1,4 @@
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -16,6 +17,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.zip.GZIPOutputStream;
 
 public class HttpServerTest {
     private static final List<Arguments> PARSE_REQUEST_CASES =
@@ -140,20 +142,7 @@ public class HttpServerTest {
                                     + "User-Agent: curl/8.7.1\r\n"
                                     + "Accept: */*\r\n\r\n",
                             "HTTP/1.1 404 Not Found\r\n\r\n"),
-                    // Accept-Encoding and Content-Encoding
-                    Arguments.of(
-                            "Request with Accept-Encoding: gzip -> Response with Content-Encoding:"
-                                    + " gzip",
-                            "GET /echo/abc HTTP/1.1\r\n"
-                                    + "Host: localhost:4221\r\n"
-                                    + "User-Agent: curl/8.7.1\r\n"
-                                    + "Accept: */*\r\n"
-                                    + "Accept-Encoding: gzip\r\n\r\n",
-                            "HTTP/1.1 200 OK\r\n"
-                                    + "Content-Encoding: gzip\r\n"
-                                    + "Content-Type: text/plain\r\n"
-                                    + "Content-Length: 3\r\n\r\n"
-                                    + "abc"),
+                    // Accept-Encoding and Content-Encoding (unsupported encodings)
                     Arguments.of(
                             "Request with Accept-Encoding: invalid-encoding -> Response without"
                                     + " Content-Encoding",
@@ -163,19 +152,6 @@ public class HttpServerTest {
                                     + "Accept: */*\r\n"
                                     + "Accept-Encoding: invalid-encoding\r\n\r\n",
                             "HTTP/1.1 200 OK\r\n"
-                                    + "Content-Type: text/plain\r\n"
-                                    + "Content-Length: 3\r\n\r\n"
-                                    + "abc"),
-                    Arguments.of(
-                            "Request with multiple Accept-Encoding values, one is valid",
-                            "GET /echo/abc HTTP/1.1\r\n"
-                                    + "Host: localhost:4221\r\n"
-                                    + "User-Agent: curl/8.7.1\r\n"
-                                    + "Accept: */*\r\n"
-                                    + "Accept-Encoding: invalid-encoding-1, gzip,"
-                                    + " invalid-encoding-2\r\n\r\n",
-                            "HTTP/1.1 200 OK\r\n"
-                                    + "Content-Encoding: gzip\r\n"
                                     + "Content-Type: text/plain\r\n"
                                     + "Content-Length: 3\r\n\r\n"
                                     + "abc"),
@@ -204,6 +180,56 @@ public class HttpServerTest {
         server.handleRequest(in, out);
 
         assertEquals(expectedResponse, out.toString(StandardCharsets.US_ASCII));
+    }
+
+    private static final List<Arguments> HANDLE_GZIP_REQUEST_CASES =
+            List.of(
+                    Arguments.of(
+                            "Accept-Encoding: gzip",
+                            "GET /echo/abc HTTP/1.1\r\n"
+                                    + "Host: localhost:4221\r\n"
+                                    + "User-Agent: curl/8.7.1\r\n"
+                                    + "Accept: */*\r\n"
+                                    + "Accept-Encoding: gzip\r\n\r\n"),
+                    Arguments.of(
+                            "Multiple Accept-Encoding values with gzip",
+                            "GET /echo/abc HTTP/1.1\r\n"
+                                    + "Host: localhost:4221\r\n"
+                                    + "User-Agent: curl/8.7.1\r\n"
+                                    + "Accept: */*\r\n"
+                                    + "Accept-Encoding: invalid-encoding-1, gzip,"
+                                    + " invalid-encoding-2\r\n\r\n"));
+
+    @ParameterizedTest(name = "{0}")
+    @FieldSource("HANDLE_GZIP_REQUEST_CASES")
+    void shouldHandleGzipCompressedRequest(String caseName, String rawRequest) throws IOException {
+        byte[] request = rawRequest.getBytes(StandardCharsets.US_ASCII);
+        ByteArrayInputStream in = new ByteArrayInputStream(request);
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+
+        HttpServer server = new HttpServer();
+        server.handleRequest(in, out);
+
+        String rawExpectedBody = "abc";
+        ByteArrayOutputStream compressed = new ByteArrayOutputStream();
+        try (GZIPOutputStream gzipOut = new GZIPOutputStream(compressed)) {
+            gzipOut.write(rawExpectedBody.getBytes(StandardCharsets.US_ASCII));
+        }
+        byte[] expectedBody = compressed.toByteArray();
+
+        String expectedHeaders =
+                "HTTP/1.1 200 OK\r\n"
+                        + "Content-Encoding: gzip\r\n"
+                        + "Content-Type: text/plain\r\n"
+                        + "Content-Length: "
+                        + expectedBody.length
+                        + "\r\n\r\n";
+
+        ByteArrayOutputStream expectedResponse = new ByteArrayOutputStream();
+        expectedResponse.write(expectedHeaders.getBytes(StandardCharsets.US_ASCII));
+        expectedResponse.write(expectedBody);
+
+        assertArrayEquals(expectedResponse.toByteArray(), out.toByteArray());
     }
 
     private static final List<Arguments> HANDLE_FILE_REQUEST_CASES =

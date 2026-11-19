@@ -16,6 +16,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.zip.GZIPOutputStream;
 
 public class HttpServer {
     final int PORT = 4221;
@@ -179,6 +180,21 @@ public class HttpServer {
         return !closingConnection;
     }
 
+    private static byte[] compressGzip(byte[] data) throws IOException {
+        if (data == null) {
+            return null;
+        }
+        ByteArrayOutputStream compressed = new ByteArrayOutputStream();
+        try (GZIPOutputStream gzipOut = new GZIPOutputStream(compressed)) {
+            gzipOut.write(data);
+        }
+        // NOTE: When .close() is called on the GZIPOutputStream instance, it
+        // writes some additional bytes to end the valid GZIP payload before
+        // actually closing the stream. Therefore, we can only read from
+        // the compressed output stream after the try-with-resource block.
+        return compressed.toByteArray();
+    }
+
     static void sendResponse(
             OutputStream out,
             HttpStatus status,
@@ -196,15 +212,20 @@ public class HttpServer {
         header.append(status.code).append(" ").append(status.reason);
         header.append("\r\n");
 
+        byte[] responseBody = body;
+
         // Header lines
         if (contentEncoding != null) {
             header.append("Content-Encoding: ").append(contentEncoding).append("\r\n");
+            if (body != null && contentEncoding.equals("gzip")) {
+                responseBody = compressGzip(body);
+            }
         }
         if (contentType != null) {
             header.append("Content-Type: ").append(contentType).append("\r\n");
         }
         if (body != null) {
-            header.append("Content-Length: ").append(body.length).append("\r\n");
+            header.append("Content-Length: ").append(responseBody.length).append("\r\n");
         }
         if (closingConnection) {
             header.append("Connection: close").append("\r\n");
@@ -214,8 +235,8 @@ public class HttpServer {
         // Use the US_ASCII charset to encode the header to comply with RFC 9110 and RFC 9112.
         buf.write(header.toString().getBytes(StandardCharsets.US_ASCII));
 
-        if (body != null) {
-            buf.write(body);
+        if (responseBody != null) {
+            buf.write(responseBody);
         }
 
         out.write(buf.toByteArray());
