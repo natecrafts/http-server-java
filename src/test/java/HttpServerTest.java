@@ -143,7 +143,7 @@ public class HttpServerTest {
                     // Accept-Encoding and Content-Encoding
                     Arguments.of(
                             "Request with Accept-Encoding: gzip -> Response with Content-Encoding:"
-                                + " gzip gzip",
+                                    + " gzip",
                             "GET /echo/abc HTTP/1.1\r\n"
                                     + "Host: localhost:4221\r\n"
                                     + "User-Agent: curl/8.7.1\r\n"
@@ -156,12 +156,37 @@ public class HttpServerTest {
                                     + "abc"),
                     Arguments.of(
                             "Request with Accept-Encoding: invalid-encoding -> Response without"
-                                + " Content-Encoding gzip",
+                                    + " Content-Encoding",
                             "GET /echo/abc HTTP/1.1\r\n"
                                     + "Host: localhost:4221\r\n"
                                     + "User-Agent: curl/8.7.1\r\n"
                                     + "Accept: */*\r\n"
                                     + "Accept-Encoding: invalid-encoding\r\n\r\n",
+                            "HTTP/1.1 200 OK\r\n"
+                                    + "Content-Type: text/plain\r\n"
+                                    + "Content-Length: 3\r\n\r\n"
+                                    + "abc"),
+                    Arguments.of(
+                            "Request with multiple Accept-Encoding values, one is valid",
+                            "GET /echo/abc HTTP/1.1\r\n"
+                                    + "Host: localhost:4221\r\n"
+                                    + "User-Agent: curl/8.7.1\r\n"
+                                    + "Accept: */*\r\n"
+                                    + "Accept-Encoding: invalid-encoding-1, gzip,"
+                                    + " invalid-encoding-2\r\n\r\n",
+                            "HTTP/1.1 200 OK\r\n"
+                                    + "Content-Encoding: gzip\r\n"
+                                    + "Content-Type: text/plain\r\n"
+                                    + "Content-Length: 3\r\n\r\n"
+                                    + "abc"),
+                    Arguments.of(
+                            "Request with multiple Accept-Encoding values, none is valid",
+                            "GET /echo/abc HTTP/1.1\r\n"
+                                    + "Host: localhost:4221\r\n"
+                                    + "User-Agent: curl/8.7.1\r\n"
+                                    + "Accept: */*\r\n"
+                                    + "Accept-Encoding: invalid-encoding-1, invalid-encoding-2,"
+                                    + " invalid-encoding-3\r\n\r\n",
                             "HTTP/1.1 200 OK\r\n"
                                     + "Content-Type: text/plain\r\n"
                                     + "Content-Length: 3\r\n\r\n"

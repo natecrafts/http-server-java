@@ -10,6 +10,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -92,8 +93,15 @@ public class HttpServer {
                 Objects.equals(request.headers.getOrDefault("connection", null), "close");
         String acceptEncoding = request.headers.getOrDefault("accept-encoding", null);
         String contentEncoding = null;
-        if (acceptEncoding != null && SUPPORTED_ENCODINGS.contains(acceptEncoding)) {
-            contentEncoding = acceptEncoding;
+        if (acceptEncoding != null) {
+            List<String> encodingCandidates =
+                    Arrays.stream(acceptEncoding.split(","))
+                            .map(String::strip)
+                            .filter(SUPPORTED_ENCODINGS::contains)
+                            .toList();
+            if (!encodingCandidates.isEmpty()) {
+                contentEncoding = encodingCandidates.getFirst();
+            }
         }
         String contentType = null;
         byte[] body = null;
