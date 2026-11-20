@@ -11,7 +11,9 @@ public class Main implements Runnable {
 
     @Override
     public void run() {
-        new HttpServer(directory).run();
+        HttpHandler codeCraftersHandler = new CodeCraftersHandler(directory);
+        HttpServer server = new HttpServer(codeCraftersHandler);
+        server.run();
     }
 
     public static void main(String[] args) {

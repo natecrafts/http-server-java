@@ -28,7 +28,7 @@ public class HttpServerTest {
                                     + "Host: localhost:4221\r\n"
                                     + "User-Agent: curl/8.7.1\r\n"
                                     + "Accept: */*\r\n\r\n",
-                            new HttpServer.HttpRequest(
+                            new HttpServer.Request(
                                     "GET",
                                     "/",
                                     "HTTP/1.1",
@@ -42,7 +42,7 @@ public class HttpServerTest {
                                     + "Host: localhost:4221\r\n"
                                     + "User-Agent: curl/8.7.1\r\n"
                                     + "Accept: */*\r\n\r\n",
-                            new HttpServer.HttpRequest(
+                            new HttpServer.Request(
                                     "GET",
                                     "/abcdefg",
                                     "HTTP/1.1",
@@ -53,13 +53,12 @@ public class HttpServerTest {
 
     @ParameterizedTest(name = "{0}")
     @FieldSource("PARSE_REQUEST_CASES")
-    void shouldParseRequest(
-            String caseName, String rawRequest, HttpServer.HttpRequest expectedRequest)
+    void shouldParseRequest(String caseName, String rawRequest, HttpServer.Request expectedRequest)
             throws IOException, HttpServer.HttpException {
         ByteArrayInputStream in =
                 new ByteArrayInputStream(rawRequest.getBytes(StandardCharsets.US_ASCII));
 
-        HttpServer.HttpRequest request = HttpServer.parseRequest(in);
+        HttpServer.Request request = HttpServer.parseRequest(in);
 
         assertEquals(expectedRequest, request);
     }
@@ -176,7 +175,8 @@ public class HttpServerTest {
         ByteArrayInputStream in = new ByteArrayInputStream(request);
         ByteArrayOutputStream out = new ByteArrayOutputStream();
 
-        HttpServer server = new HttpServer();
+        HttpHandler codecraftersHandler = new CodeCraftersHandler();
+        HttpServer server = new HttpServer(codecraftersHandler);
         server.handleRequest(in, out);
 
         assertEquals(expectedResponse, out.toString(StandardCharsets.US_ASCII));
@@ -207,7 +207,8 @@ public class HttpServerTest {
         ByteArrayInputStream in = new ByteArrayInputStream(request);
         ByteArrayOutputStream out = new ByteArrayOutputStream();
 
-        HttpServer server = new HttpServer();
+        HttpHandler codecraftersHandler = new CodeCraftersHandler();
+        HttpServer server = new HttpServer(codecraftersHandler);
         server.handleRequest(in, out);
 
         String rawExpectedBody = "abc";
@@ -271,9 +272,9 @@ public class HttpServerTest {
     void shouldHandleGetFilesRequest(
             String caseName, String rawRequest, String expectedResponse, @TempDir Path tempDir)
             throws IOException {
-        Path serveDir = Files.createDirectory(tempDir.resolve("served"));
+        Path servedDir = Files.createDirectory(tempDir.resolve("served"));
 
-        Path regularFile = serveDir.resolve("foo");
+        Path regularFile = servedDir.resolve("foo");
         String regularContent = "hello world";
         Files.writeString(regularFile, regularContent, StandardCharsets.US_ASCII);
 
@@ -287,7 +288,8 @@ public class HttpServerTest {
         ByteArrayInputStream in = new ByteArrayInputStream(request);
         ByteArrayOutputStream out = new ByteArrayOutputStream();
 
-        HttpServer server = new HttpServer(serveDir);
+        HttpHandler codecraftersHandler = new CodeCraftersHandler(servedDir);
+        HttpServer server = new HttpServer(codecraftersHandler);
         server.handleRequest(in, out);
         assertEquals(expectedResponse, out.toString(StandardCharsets.US_ASCII));
     }
@@ -309,7 +311,8 @@ public class HttpServerTest {
         ByteArrayInputStream in = new ByteArrayInputStream(request);
         ByteArrayOutputStream out = new ByteArrayOutputStream();
 
-        HttpServer server = new HttpServer(servedDir);
+        HttpHandler codecraftersHandler = new CodeCraftersHandler(servedDir);
+        HttpServer server = new HttpServer(codecraftersHandler);
         server.handleRequest(in, out);
         Path filePath = servedDir.resolve("number");
         String fileContent = Files.readString(filePath, StandardCharsets.US_ASCII);
@@ -330,7 +333,8 @@ public class HttpServerTest {
         ByteArrayInputStream in = new ByteArrayInputStream(request);
         ByteArrayOutputStream out = new ByteArrayOutputStream();
 
-        HttpServer server = new HttpServer();
+        HttpHandler codecraftersHandler = new CodeCraftersHandler();
+        HttpServer server = new HttpServer(codecraftersHandler);
         boolean persistingConnection = server.handleRequest(in, out);
         assertTrue(persistingConnection);
     }
@@ -348,7 +352,8 @@ public class HttpServerTest {
         ByteArrayInputStream in = new ByteArrayInputStream(request);
         ByteArrayOutputStream out = new ByteArrayOutputStream();
 
-        HttpServer server = new HttpServer();
+        HttpHandler codecraftersHandler = new CodeCraftersHandler();
+        HttpServer server = new HttpServer(codecraftersHandler);
         boolean persistingConnection = server.handleRequest(in, out);
         assertFalse(persistingConnection);
     }
@@ -371,7 +376,9 @@ public class HttpServerTest {
 
         ByteArrayInputStream in = new ByteArrayInputStream(requests);
         ByteArrayOutputStream out = new ByteArrayOutputStream();
-        HttpServer server = new HttpServer();
+
+        HttpHandler codecraftersHandler = new CodeCraftersHandler();
+        HttpServer server = new HttpServer(codecraftersHandler);
 
         String expectedResponse1 =
                 "HTTP/1.1 200 OK\r\n"

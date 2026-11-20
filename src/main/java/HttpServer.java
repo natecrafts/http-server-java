@@ -6,8 +6,6 @@ import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -21,14 +19,10 @@ import java.util.zip.GZIPOutputStream;
 public class HttpServer {
     final int PORT = 4221;
     final Set<String> SUPPORTED_ENCODINGS = Set.of("gzip");
-    private final Path directory;
+    HttpHandler handler;
 
-    public HttpServer() {
-        this(null);
-    }
-
-    public HttpServer(Path directory) {
-        this.directory = directory == null ? null : directory.toAbsolutePath().normalize();
+    public HttpServer(HttpHandler handler) {
+        this.handler = handler;
     }
 
     public void run() {
@@ -81,15 +75,15 @@ public class HttpServer {
      * @throws IOException in case there is an {@link IOException}.
      */
     boolean handleRequest(InputStream in, OutputStream out) throws IOException {
-        HttpRequest request;
+        Request request;
         try {
             request = parseRequest(in);
         } catch (HttpException e) {
-            sendResponse(out, HttpStatus.BAD_REQUEST, true, null, null, null);
+            Response response = new Response(HttpStatus.BAD_REQUEST, null, null);
+            sendResponse(out, response, true, null);
             return false;
         }
 
-        HttpStatus status;
         boolean closingConnection =
                 Objects.equals(request.headers.getOrDefault("connection", null), "close");
         String acceptEncoding = request.headers.getOrDefault("accept-encoding", null);
@@ -104,79 +98,8 @@ public class HttpServer {
                 contentEncoding = encodingCandidates.getFirst();
             }
         }
-        String contentType = null;
-        byte[] body = null;
-
-        if (request.path == null) {
-            // NOTE: When the status is NOT_FOUND, we normally do not close the connection
-            // unless the request has the 'Connection: close' header.
-            status = HttpStatus.NOT_FOUND;
-        } else if (request.path.equals("/")) {
-            status = HttpStatus.OK;
-        } else if (request.path.startsWith("/echo/")) {
-            String str = request.path.substring("/echo/".length());
-            status = HttpStatus.OK;
-            contentType = "text/plain";
-            // According to RFC 6657, we use the US_ASCII charset for content type
-            // text/plain by default, unless the content type header also explicitly
-            // includes a charset.
-            // For example: 'Content-Type: text/plain; charset=utf-8'
-            body = str.getBytes(StandardCharsets.US_ASCII);
-        } else if (request.path.startsWith("/user-agent")) {
-            status = HttpStatus.OK;
-            String userAgent = request.headers.get("user-agent");
-            contentType = "text/plain";
-            body = userAgent.getBytes(StandardCharsets.US_ASCII);
-        } else if (request.path.startsWith("/files/")) {
-            String fileName = request.path.substring("/files/".length());
-            if (request.method.equals("GET")) {
-                // We normalize and check if the filePath actually starts with directory
-                // to make sure there is no path traversal. If there is an issue, return
-                // NOT_FOUND.
-                Path filePath;
-                if (directory == null) {
-                    filePath = null;
-                } else {
-                    filePath = directory.resolve(fileName).normalize();
-                }
-                if (filePath == null
-                        || !filePath.startsWith(directory)
-                        || !Files.isRegularFile(filePath)) {
-                    status = HttpStatus.NOT_FOUND;
-                } else {
-                    status = HttpStatus.OK;
-                    contentType = "application/octet-stream";
-                    body = Files.readAllBytes(filePath);
-                }
-            } else if (request.method.equals("POST")) {
-                // We normalize and check if the filePath actually starts with directory
-                // to make sure there is no path traversal. If there is an issue, return
-                // BAD_REQUEST instead of NOT_FOUND.
-                Path filePath;
-                if (directory == null) {
-                    filePath = null;
-                } else {
-                    filePath = directory.resolve(fileName).normalize();
-                }
-                if (request.body == null
-                        || filePath == null
-                        || !filePath.startsWith(directory)
-                        || fileName.isEmpty()) {
-                    status = HttpStatus.BAD_REQUEST;
-                    closingConnection = true;
-                } else {
-                    Files.write(filePath, request.body);
-                    status = HttpStatus.CREATED;
-                }
-            } else {
-                status = HttpStatus.METHOD_NOT_ALLOWED;
-            }
-        } else {
-            // NOTE: When the status is NOT_FOUND, we normally do not close the connection
-            // unless the request has the 'Connection: close' header.
-            status = HttpStatus.NOT_FOUND;
-        }
-        sendResponse(out, status, closingConnection, contentEncoding, contentType, body);
+        Response response = handler.handle(request);
+        sendResponse(out, response, closingConnection, contentEncoding);
         return !closingConnection;
     }
 
@@ -196,12 +119,7 @@ public class HttpServer {
     }
 
     static void sendResponse(
-            OutputStream out,
-            HttpStatus status,
-            boolean closingConnection,
-            String contentEncoding,
-            String contentType,
-            byte[] body)
+            OutputStream out, Response response, boolean closingConnection, String contentEncoding)
             throws IOException {
         // Use a byte buffer to minimize the number of syscalls taken to send the response.
         ByteArrayOutputStream buf = new ByteArrayOutputStream();
@@ -209,22 +127,22 @@ public class HttpServer {
         StringBuilder header = new StringBuilder();
         // Response line
         header.append("HTTP/1.1 ");
-        header.append(status.code).append(" ").append(status.reason);
+        header.append(response.status.code).append(" ").append(response.status.reason);
         header.append("\r\n");
 
-        byte[] responseBody = body;
+        byte[] responseBody = response.body;
 
         // Header lines
         if (contentEncoding != null) {
             header.append("Content-Encoding: ").append(contentEncoding).append("\r\n");
-            if (body != null && contentEncoding.equals("gzip")) {
-                responseBody = compressGzip(body);
+            if (response.body != null && contentEncoding.equals("gzip")) {
+                responseBody = compressGzip(response.body);
             }
         }
-        if (contentType != null) {
-            header.append("Content-Type: ").append(contentType).append("\r\n");
+        if (response.contentType != null) {
+            header.append("Content-Type: ").append(response.contentType).append("\r\n");
         }
-        if (body != null) {
+        if (response.body != null) {
             header.append("Content-Length: ").append(responseBody.length).append("\r\n");
         }
         if (closingConnection) {
@@ -266,7 +184,7 @@ public class HttpServer {
         return buf.toString(StandardCharsets.US_ASCII);
     }
 
-    static HttpRequest parseRequest(InputStream in) throws IOException, HttpException {
+    static Request parseRequest(InputStream in) throws IOException, HttpException {
         String requestLine = parseRequestHeaderLine(in);
         String[] requestLineParts = requestLine.split(" ");
         if (requestLineParts.length != 3) {
@@ -306,7 +224,7 @@ public class HttpServer {
             }
         }
 
-        return new HttpRequest(method, path, version, headers, body);
+        return new Request(method, path, version, headers, body);
     }
 
     static class HttpStatus {
@@ -333,18 +251,18 @@ public class HttpServer {
         }
     }
 
-    static class HttpRequest {
+    public static class Request {
         String method;
         String path;
         String version;
         Map<String, String> headers;
         byte[] body;
 
-        HttpRequest(String method, String path, String version, Map<String, String> headers) {
+        Request(String method, String path, String version, Map<String, String> headers) {
             this(method, path, version, headers, null);
         }
 
-        HttpRequest(
+        Request(
                 String method,
                 String path,
                 String version,
@@ -359,7 +277,7 @@ public class HttpServer {
 
         @Override
         public boolean equals(Object obj) {
-            if (!(obj instanceof HttpRequest other)) return false;
+            if (!(obj instanceof Request other)) return false;
             return Objects.equals(method, other.method)
                     && Objects.equals(path, other.path)
                     && Objects.equals(version, other.version)
@@ -387,6 +305,18 @@ public class HttpServer {
                     + ", headers="
                     + headers
                     + '}';
+        }
+    }
+
+    public static class Response {
+        HttpStatus status;
+        String contentType;
+        byte[] body;
+
+        public Response(HttpStatus status, String contentType, byte[] body) {
+            this.status = status;
+            this.contentType = contentType;
+            this.body = body;
         }
     }
 }
