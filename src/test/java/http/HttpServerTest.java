@@ -1,8 +1,12 @@
+package http;
+
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
+
+import codecrafters.CodeCraftersHandler;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -39,7 +43,7 @@ public class HttpServerTest {
                                     + "Host: localhost:4221\r\n"
                                     + "User-Agent: curl/8.7.1\r\n"
                                     + "Accept: */*\r\n\r\n",
-                            new HttpServer.Request(
+                            new HttpRequest(
                                     "GET",
                                     "/",
                                     "HTTP/1.1",
@@ -53,7 +57,7 @@ public class HttpServerTest {
                                     + "Host: localhost:4221\r\n"
                                     + "User-Agent: curl/8.7.1\r\n"
                                     + "Accept: */*\r\n\r\n",
-                            new HttpServer.Request(
+                            new HttpRequest(
                                     "GET",
                                     "/abcdefg",
                                     "HTTP/1.1",
@@ -64,12 +68,12 @@ public class HttpServerTest {
 
     @ParameterizedTest(name = "{0}")
     @FieldSource("PARSE_REQUEST_CASES")
-    void shouldParseRequest(String caseName, String rawRequest, HttpServer.Request expectedRequest)
-            throws IOException, HttpServer.HttpException {
+    void shouldParseRequest(String caseName, String rawRequest, HttpRequest expectedRequest)
+            throws IOException, HttpException {
         ByteArrayInputStream in =
                 new ByteArrayInputStream(rawRequest.getBytes(StandardCharsets.US_ASCII));
 
-        HttpServer.Request request = HttpServer.parseRequest(in);
+        HttpRequest request = HttpServer.parseRequest(in);
 
         assertEquals(expectedRequest, request);
     }
@@ -440,7 +444,7 @@ public class HttpServerTest {
                     } catch (InterruptedException e) {
                         throw new RuntimeException(e);
                     }
-                    return new HttpServer.Response(HttpServer.HttpStatus.OK, null, null);
+                    return new HttpResponse(HttpStatus.OK, null, null);
                 };
 
         // The test thread needs to carry out these steps: (1) start the server, (2) submit two

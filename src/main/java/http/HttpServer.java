@@ -1,3 +1,5 @@
+package http;
+
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -103,11 +105,11 @@ public class HttpServer implements AutoCloseable {
      * @throws IOException in case there is an {@link IOException}.
      */
     boolean handleRequest(InputStream in, OutputStream out) throws IOException {
-        Request request;
+        HttpRequest request;
         try {
             request = parseRequest(in);
         } catch (HttpException e) {
-            Response response = new Response(HttpStatus.BAD_REQUEST, null, null);
+            HttpResponse response = new HttpResponse(HttpStatus.BAD_REQUEST, null, null);
             sendResponse(out, response, true, null);
             return false;
         }
@@ -126,7 +128,7 @@ public class HttpServer implements AutoCloseable {
                 contentEncoding = encodingCandidates.getFirst();
             }
         }
-        Response response = handler.handle(request);
+        HttpResponse response = handler.handle(request);
         sendResponse(out, response, closingConnection, contentEncoding);
         return !closingConnection;
     }
@@ -147,7 +149,10 @@ public class HttpServer implements AutoCloseable {
     }
 
     static void sendResponse(
-            OutputStream out, Response response, boolean closingConnection, String contentEncoding)
+            OutputStream out,
+            HttpResponse response,
+            boolean closingConnection,
+            String contentEncoding)
             throws IOException {
         // Use a byte buffer to minimize the number of syscalls taken to send the response.
         ByteArrayOutputStream buf = new ByteArrayOutputStream();
@@ -212,7 +217,7 @@ public class HttpServer implements AutoCloseable {
         return buf.toString(StandardCharsets.US_ASCII);
     }
 
-    static Request parseRequest(InputStream in) throws IOException, HttpException {
+    static HttpRequest parseRequest(InputStream in) throws IOException, HttpException {
         String requestLine = parseRequestHeaderLine(in);
         String[] requestLineParts = requestLine.split(" ");
         if (requestLineParts.length != 3) {
@@ -252,99 +257,6 @@ public class HttpServer implements AutoCloseable {
             }
         }
 
-        return new Request(method, path, version, headers, body);
-    }
-
-    static class HttpStatus {
-        static final HttpStatus OK = new HttpStatus(200, "OK");
-        static final HttpStatus CREATED = new HttpStatus(201, "Created");
-        static final HttpStatus BAD_REQUEST = new HttpStatus(400, "Bad Request");
-        static final HttpStatus NOT_FOUND = new HttpStatus(404, "Not Found");
-        static final HttpStatus METHOD_NOT_ALLOWED = new HttpStatus(405, "Method Not Allowed");
-
-        private final int code;
-        private final String reason;
-
-        HttpStatus(int code, String reason) {
-            this.code = code;
-            this.reason = reason;
-        }
-    }
-
-    static class HttpException extends Exception {
-        public final String message;
-
-        HttpException(String message) {
-            this.message = message;
-        }
-    }
-
-    public static class Request {
-        String method;
-        String path;
-        String version;
-        Map<String, String> headers;
-        byte[] body;
-
-        Request(String method, String path, String version, Map<String, String> headers) {
-            this(method, path, version, headers, null);
-        }
-
-        Request(
-                String method,
-                String path,
-                String version,
-                Map<String, String> headers,
-                byte[] body) {
-            this.method = method;
-            this.path = path;
-            this.version = version;
-            this.headers = headers;
-            this.body = body;
-        }
-
-        @Override
-        public boolean equals(Object obj) {
-            if (!(obj instanceof Request other)) return false;
-            return Objects.equals(method, other.method)
-                    && Objects.equals(path, other.path)
-                    && Objects.equals(version, other.version)
-                    && Objects.equals(headers, other.headers)
-                    && Arrays.equals(body, other.body);
-        }
-
-        @Override
-        public int hashCode() {
-            return Objects.hash(method, path, version, headers);
-        }
-
-        @Override
-        public String toString() {
-            return "HttpRequest{"
-                    + "method='"
-                    + method
-                    + '\''
-                    + ", path='"
-                    + path
-                    + '\''
-                    + ", version='"
-                    + version
-                    + '\''
-                    + ", headers="
-                    + headers
-                    + '}';
-        }
-    }
-
-    public static class Response {
-        HttpStatus status;
-        String contentType;
-        byte[] body;
-
-        public Response(HttpStatus status, String contentType, byte[] body) {
-            this.status = status;
-            this.contentType = contentType;
-            this.body = body;
-        }
+        return new HttpRequest(method, path, version, headers, body);
     }
 }

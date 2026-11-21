@@ -1,3 +1,10 @@
+package codecrafters;
+
+import http.HttpHandler;
+import http.HttpRequest;
+import http.HttpResponse;
+import http.HttpStatus;
+
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -15,20 +22,20 @@ public class CodeCraftersHandler implements HttpHandler {
     }
 
     @Override
-    public HttpServer.Response handle(HttpServer.Request request) throws IOException {
-        HttpServer.HttpStatus status;
+    public HttpResponse handle(HttpRequest request) throws IOException {
+        HttpStatus status;
         String contentType = null;
         byte[] body = null;
 
         if (request.path == null) {
             // NOTE: When the status is NOT_FOUND, we normally do not close the connection
             // unless the request has the 'Connection: close' header.
-            status = HttpServer.HttpStatus.NOT_FOUND;
+            status = HttpStatus.NOT_FOUND;
         } else if (request.path.equals("/")) {
-            status = HttpServer.HttpStatus.OK;
+            status = HttpStatus.OK;
         } else if (request.path.startsWith("/echo/")) {
             String str = request.path.substring("/echo/".length());
-            status = HttpServer.HttpStatus.OK;
+            status = HttpStatus.OK;
             contentType = "text/plain";
             // According to RFC 6657, we use the US_ASCII charset for content type
             // text/plain by default, unless the content type header also explicitly
@@ -36,7 +43,7 @@ public class CodeCraftersHandler implements HttpHandler {
             // For example: 'Content-Type: text/plain; charset=utf-8'
             body = str.getBytes(StandardCharsets.US_ASCII);
         } else if (request.path.startsWith("/user-agent")) {
-            status = HttpServer.HttpStatus.OK;
+            status = HttpStatus.OK;
             String userAgent = request.headers.get("user-agent");
             contentType = "text/plain";
             body = userAgent.getBytes(StandardCharsets.US_ASCII);
@@ -55,9 +62,9 @@ public class CodeCraftersHandler implements HttpHandler {
                 if (filePath == null
                         || !filePath.startsWith(directory)
                         || !Files.isRegularFile(filePath)) {
-                    status = HttpServer.HttpStatus.NOT_FOUND;
+                    status = HttpStatus.NOT_FOUND;
                 } else {
-                    status = HttpServer.HttpStatus.OK;
+                    status = HttpStatus.OK;
                     contentType = "application/octet-stream";
                     body = Files.readAllBytes(filePath);
                 }
@@ -75,20 +82,20 @@ public class CodeCraftersHandler implements HttpHandler {
                         || filePath == null
                         || !filePath.startsWith(directory)
                         || fileName.isEmpty()) {
-                    status = HttpServer.HttpStatus.BAD_REQUEST;
+                    status = HttpStatus.BAD_REQUEST;
                     // closingConnection = true;
                 } else {
                     Files.write(filePath, request.body);
-                    status = HttpServer.HttpStatus.CREATED;
+                    status = HttpStatus.CREATED;
                 }
             } else {
-                status = HttpServer.HttpStatus.METHOD_NOT_ALLOWED;
+                status = HttpStatus.METHOD_NOT_ALLOWED;
             }
         } else {
             // NOTE: When the status is NOT_FOUND, we normally do not close the connection
             // unless the request has the 'Connection: close' header.
-            status = HttpServer.HttpStatus.NOT_FOUND;
+            status = HttpStatus.NOT_FOUND;
         }
-        return new HttpServer.Response(status, contentType, body);
+        return new HttpResponse(status, contentType, body);
     }
 }
