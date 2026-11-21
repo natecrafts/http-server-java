@@ -5,6 +5,7 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.SocketException;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -16,13 +17,21 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.zip.GZIPOutputStream;
 
-public class HttpServer {
-    final int PORT = 4221;
+public class HttpServer implements AutoCloseable {
     final Set<String> SUPPORTED_ENCODINGS = Set.of("gzip");
-    HttpHandler handler;
+    private final int port;
+    private final HttpHandler handler;
+    private ServerSocket listeningSocket;
+
+    public HttpServer(HttpHandler handler, int port) {
+        this.handler = handler;
+        this.port = port;
+    }
 
     public HttpServer(HttpHandler handler) {
-        this.handler = handler;
+        // With port == 0, the kernel (atomically) picks and binds to any unused
+        // ephemeral port.
+        this(handler, 0);
     }
 
     public void run() {
@@ -30,17 +39,10 @@ public class HttpServer {
 
         // Create a "listening socket" which accepts new connections.
         // This is initially an unbound socket, i.e. it is not yet bound to a port.
-        try (ServerSocket listeningSocket = new ServerSocket();
-                ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
-            // Instruct the kernel to allow reusing a port lingering in the TIME_WAIT
-            // state after it was recently closed.
-            // Since the tester restarts your program quite often, setting SO_REUSEADDR
-            // ensures that we don't run into 'Address already in use' errors.
-            listeningSocket.setReuseAddress(true);
-
-            // Bind the listening socket to a port.
-            listeningSocket.bind(new InetSocketAddress(PORT));
-
+        try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            if (listeningSocket == null) {
+                bind();
+            }
             while (true) {
                 // Wait for connection from client.
                 // For each connection, creates a new "connection socket" that does
@@ -50,19 +52,45 @@ public class HttpServer {
                 // Otherwise, the while loop is never blocked and spawns infinitely many
                 // virtual threads instantly.
                 Socket connectionSocket = listeningSocket.accept();
-                executor.execute(() -> {
-                    try (connectionSocket) {
-                        System.out.println("Accepted new connection");
-                        InputStream in = connectionSocket.getInputStream();
-                        OutputStream out = connectionSocket.getOutputStream();
-                        while (handleRequest(in, out)) {}
-                    } catch (IOException e) {
-                        System.out.println("IOException: " + e.getMessage());
-                    }
-                });
+                executor.execute(() -> handleConnection(connectionSocket));
+            }
+        } catch (SocketException e) {
+            // When the server is closed through the close() method,
+            // the handleRequest method also throws a Socket exception.
+            if (listeningSocket != null && listeningSocket.isClosed()) {
+                System.out.println("Server closed.");
             }
         } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    void handleConnection(Socket connectionSocket) {
+        try (connectionSocket) {
+            System.out.println("Accepted new connection");
+            InputStream in = connectionSocket.getInputStream();
+            OutputStream out = connectionSocket.getOutputStream();
+            while (handleRequest(in, out)) {}
+        } catch (IOException e) {
             System.out.println("IOException: " + e.getMessage());
+        }
+    }
+
+    int bind() throws IOException {
+        listeningSocket = new ServerSocket();
+        // Instruct the kernel to allow reusing a port lingering in the TIME_WAIT
+        // state after it was recently closed.
+        // Since the tester restarts your program quite often, setting SO_REUSEADDR
+        // ensures that we don't run into 'Address already in use' errors.
+        listeningSocket.setReuseAddress(true);
+        listeningSocket.bind(new InetSocketAddress(port));
+        return listeningSocket.getLocalPort();
+    }
+
+    @Override
+    public void close() throws IOException {
+        if (listeningSocket != null) {
+            listeningSocket.close();
         }
     }
 
