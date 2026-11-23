@@ -7,7 +7,6 @@ import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
-import java.io.IOException;
 import java.nio.file.Path;
 
 @Command(name = "http-server", mixinStandardHelpOptions = true)
@@ -20,8 +19,6 @@ public class Main implements Runnable {
         HttpHandler codeCraftersHandler = new CodeCraftersHandler(directory);
         try (HttpServer server = new HttpServer(codeCraftersHandler, 4221)) {
             server.run();
-        } catch (IOException e) {
-            throw new RuntimeException(e);
         }
     }
 

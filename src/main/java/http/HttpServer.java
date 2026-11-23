@@ -4,6 +4,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.UncheckedIOException;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -21,30 +22,41 @@ import java.util.zip.GZIPOutputStream;
 
 public class HttpServer implements AutoCloseable {
     final Set<String> SUPPORTED_ENCODINGS = Set.of("gzip");
-    private final int port;
+
     private final HttpHandler handler;
+
+    /**
+     * The initial port value that this server should bind to.
+     * If this is 0, the kernel atomically picks and binds to any unused ephemeral port.
+     */
+    private final int initialPort;
+
     private ServerSocket listeningSocket;
 
-    public HttpServer(HttpHandler handler, int port) {
+    public HttpServer(HttpHandler handler, int initialPort) {
         this.handler = handler;
-        this.port = port;
+        this.initialPort = initialPort;
     }
 
     public HttpServer(HttpHandler handler) {
-        // With port == 0, the kernel (atomically) picks and binds to any unused
-        // ephemeral port.
+        // Set the initial port to 0 to pick an unused ephemeral port.
         this(handler, 0);
     }
 
     public void run() {
         System.out.println("Starting HTTP server...");
 
-        // Create a "listening socket" which accepts new connections.
-        // This is initially an unbound socket, i.e. it is not yet bound to a port.
-        try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
-            if (listeningSocket == null) {
+        // Only create a listeningSocket if it is not yet created.
+        if (listeningSocket == null) {
+            try {
                 bind();
+            } catch (IOException e) {
+                throw new UncheckedIOException(
+                        "Cannot bind the server to port " + initialPort + ".", e);
             }
+        }
+
+        try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
             while (true) {
                 // Wait for connection from client.
                 // For each connection, creates a new "connection socket" that does
@@ -57,13 +69,18 @@ public class HttpServer implements AutoCloseable {
                 executor.execute(() -> handleConnection(connectionSocket));
             }
         } catch (SocketException e) {
-            // When the server is closed through the close() method,
-            // the handleRequest method also throws a Socket exception.
-            if (listeningSocket != null && listeningSocket.isClosed()) {
+            // Closing the listeningSocket via close() interrupts the blocked accept() call
+            // with a SocketException. This is an expected shutdown path, so we just log
+            // and exit gracefully.
+            if (listeningSocket.isClosed()) {
                 System.out.println("Server closed.");
+            } else {
+                throw new UncheckedIOException(
+                        "Socket error while accepting connections on port " + getPort() + ".", e);
             }
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            throw new UncheckedIOException(
+                    "I/O error while accepting connections on port " + getPort() + ".", e);
         }
     }
 
@@ -74,30 +91,76 @@ public class HttpServer implements AutoCloseable {
             OutputStream out = connectionSocket.getOutputStream();
             while (handleRequest(in, out)) {}
         } catch (IOException e) {
-            System.out.println("IOException: " + e.getMessage());
-        }
-    }
-
-    int bind() throws IOException {
-        listeningSocket = new ServerSocket();
-        // Instruct the kernel to allow reusing a port lingering in the TIME_WAIT
-        // state after it was recently closed.
-        // Since the tester restarts your program quite often, setting SO_REUSEADDR
-        // ensures that we don't run into 'Address already in use' errors.
-        listeningSocket.setReuseAddress(true);
-        listeningSocket.bind(new InetSocketAddress(port));
-        return listeningSocket.getLocalPort();
-    }
-
-    @Override
-    public void close() throws IOException {
-        if (listeningSocket != null) {
-            listeningSocket.close();
+            System.out.println(
+                    "I/O error while handling connection on port "
+                            + getPort()
+                            + ": "
+                            + e.getMessage());
         }
     }
 
     /**
-     * Handle a single request.
+     * Creates the listening socket and binds it to a local IP address and TCP port.
+     * This must be called before the server can handle requests and only called once
+     * for a server instance.
+     */
+    void bind() throws IOException {
+        if (listeningSocket != null) {
+            throw new IllegalStateException("Server is already bound to port " + getPort() + ".");
+        }
+        // Create a "listening socket" which accepts new connections.
+        // This is initially an unbound socket, i.e. it is not yet bound to a port.
+        listeningSocket = new ServerSocket();
+        try {
+            // Instruct the kernel to allow reusing a port lingering in the TIME_WAIT
+            // state after it was recently closed.
+            // Since the tester restarts your program quite often, setting SO_REUSEADDR
+            // ensures that we don't run into 'Address already in use' errors.
+            listeningSocket.setReuseAddress(true);
+            listeningSocket.bind(new InetSocketAddress(initialPort));
+        } catch (IOException e) {
+            // When the listeningSocket is created, it occupies a file descriptor.
+            // If we do not call .close() manually, we have to wait for the GC to
+            // clean up the listeningSocket to free the file descriptor.
+            // Unix OSes normally have a file descriptor limit. It is good practice
+            // to free up file descriptors if we do not use them.
+            // Run ulimit -n to see the max number of file descriptors a single
+            // process can have open simultaneously.
+            listeningSocket.close();
+            // Set the listening socket back to null to avoid referencing a closed socket.
+            listeningSocket = null;
+            throw e;
+        }
+    }
+
+    /**
+     * This must be called after {@link #bind}.
+     * @return The port that the listening socket of this server is bound to.
+     */
+    int getPort() {
+        if (listeningSocket == null) {
+            throw new IllegalStateException(
+                    "The listening socket has not been created and bound to a port.");
+        }
+        return listeningSocket.getLocalPort();
+    }
+
+    /**
+     * Closes the listening socket of the server and stops listening to new requests.
+     */
+    @Override
+    public void close() {
+        if (listeningSocket != null) {
+            try {
+                listeningSocket.close();
+            } catch (IOException e) {
+                throw new UncheckedIOException("I/O error while closing the listening socket.", e);
+            }
+        }
+    }
+
+    /**
+     * Handles a single request.
      *
      * @param in The input stream from which the incoming request can be read.
      * @param out The output stream to which the response can be written.
@@ -194,12 +257,30 @@ public class HttpServer implements AutoCloseable {
         out.flush();
     }
 
-    static String parseRequestHeaderLine(InputStream in) throws IOException, HttpException {
+    /**
+     * Parses a single line in the header of an HTTP request.
+     * For reference, see RFC 9112:
+     * @param in The input stream.
+     * @return The next line in the header of an HTTP request.
+     * @throws HttpException if there is an error parsing the HTTP request.
+     */
+    static String parseRequestHeaderLine(InputStream in) throws HttpException {
         ByteArrayOutputStream buf = new ByteArrayOutputStream();
         while (true) {
-            int b = in.read();
+            int b;
+            try {
+                b = in.read();
+            } catch (IOException e) {
+                throw new HttpException("I/O error reading the header: " + e.getMessage() + ".");
+            }
             if (b == '\r') {
-                int next = in.read();
+                int next;
+                try {
+                    next = in.read();
+                } catch (IOException e) {
+                    throw new HttpException(
+                            "I/O error reading the header: " + e.getMessage() + ".");
+                }
                 if (next == '\n') {
                     break;
                 } else {
@@ -217,7 +298,10 @@ public class HttpServer implements AutoCloseable {
         return buf.toString(StandardCharsets.US_ASCII);
     }
 
-    static HttpRequest parseRequest(InputStream in) throws IOException, HttpException {
+    /**
+     * Parses an HTTP request.
+     */
+    static HttpRequest parseRequest(InputStream in) throws HttpException {
         String requestLine = parseRequestHeaderLine(in);
         String[] requestLineParts = requestLine.split(" ");
         if (requestLineParts.length != 3) {
@@ -251,7 +335,12 @@ public class HttpServer implements AutoCloseable {
 
         if (headers.containsKey("content-length")) {
             int contentLength = Integer.parseInt(headers.get("content-length"));
-            body = in.readNBytes(contentLength);
+            try {
+                body = in.readNBytes(contentLength);
+            } catch (IOException e) {
+                throw new HttpException(
+                        "Failed to read " + contentLength + " byte(s) of the request body.");
+            }
             if (body.length < contentLength) {
                 throw new HttpException("Unexpected EOF while reading request body");
             }

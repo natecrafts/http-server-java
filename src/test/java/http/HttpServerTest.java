@@ -69,7 +69,7 @@ public class HttpServerTest {
     @ParameterizedTest(name = "{0}")
     @FieldSource("PARSE_REQUEST_CASES")
     void shouldParseRequest(String caseName, String rawRequest, HttpRequest expectedRequest)
-            throws IOException, HttpException {
+            throws HttpException {
         ByteArrayInputStream in =
                 new ByteArrayInputStream(rawRequest.getBytes(StandardCharsets.US_ASCII));
 
@@ -465,7 +465,8 @@ public class HttpServerTest {
         // closed until its own close() method is called, causing a deadlock.
         try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
                 HttpServer server = new HttpServer(twoConcurrentRequestsHandler)) {
-            int port = server.bind();
+            server.bind();
+            int port = server.getPort();
             executor.execute(server::run);
 
             Callable<byte[]> clientTask =
