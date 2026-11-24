@@ -1,12 +1,16 @@
-import codecrafters.CodeCraftersHandler;
+import codecrafters.CodeCraftersRequestHandler;
 
-import http.HttpHandler;
-import http.HttpServer;
+import http.HttpConnectionHandler;
+import http.HttpRequestHandler;
 
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
+import tcp.TcpServer;
+
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Path;
 
 @Command(name = "http-server", mixinStandardHelpOptions = true)
@@ -16,9 +20,13 @@ public class Main implements Runnable {
 
     @Override
     public void run() {
-        HttpHandler codeCraftersHandler = new CodeCraftersHandler(directory);
-        try (HttpServer server = new HttpServer(codeCraftersHandler, 4221)) {
+        HttpRequestHandler codeCraftersRequestHandler = new CodeCraftersRequestHandler(directory);
+        HttpConnectionHandler codeCraftersConnectionHandler =
+                new HttpConnectionHandler(codeCraftersRequestHandler);
+        try (TcpServer server = new TcpServer(codeCraftersConnectionHandler, 4221)) {
             server.run();
+        } catch (IOException e) {
+            throw new UncheckedIOException("I/O error while running TCP server.", e);
         }
     }
 

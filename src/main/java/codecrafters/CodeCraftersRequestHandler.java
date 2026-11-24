@@ -1,7 +1,7 @@
 package codecrafters;
 
-import http.HttpHandler;
 import http.HttpRequest;
+import http.HttpRequestHandler;
 import http.HttpResponse;
 import http.HttpStatus;
 
@@ -10,14 +10,14 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-public class CodeCraftersHandler implements HttpHandler {
+public class CodeCraftersRequestHandler implements HttpRequestHandler {
     private final Path directory;
 
-    public CodeCraftersHandler(Path directory) {
-        this.directory = directory;
+    public CodeCraftersRequestHandler(Path directory) {
+        this.directory = directory == null ? null : directory.toAbsolutePath().normalize();
     }
 
-    public CodeCraftersHandler() {
+    public CodeCraftersRequestHandler() {
         this(null);
     }
 
