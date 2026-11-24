@@ -10,6 +10,14 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+/**
+ * HTTP request handler for
+ * <a href="https://app.codecrafters.io/courses/http-server/overview">
+ *     CodeCrafters' HTTP Server Challenge
+ * </a>.
+ * This HTTP request handler is completely decoupled from the generic implementation
+ * of TCP and HTTP.
+ */
 public class CodeCraftersRequestHandler implements HttpRequestHandler {
     private final Path directory;
 

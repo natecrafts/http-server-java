@@ -15,6 +15,15 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.zip.GZIPOutputStream;
 
+/**
+ * An OSI Layer 7 (application) HTTP/1.1 connection handler.
+ * Routing is delegated to an {@link HttpRequestHandler}.
+ * Supported features:
+ * <ul>
+ *     <li>Keep alive</li>
+ *     <li>GZIP compression</li>
+ * </ul>
+ */
 public class HttpConnectionHandler implements TcpConnectionHandler {
     final Set<String> SUPPORTED_ENCODINGS = Set.of("gzip");
 
@@ -43,12 +52,12 @@ public class HttpConnectionHandler implements TcpConnectionHandler {
             request = parseRequest(in);
         } catch (HttpException e) {
             HttpResponse response = new HttpResponse(HttpStatus.BAD_REQUEST, null, null);
-            sendResponse(out, response, true, null);
+            sendResponse(out, response, false, null);
             return false;
         }
 
-        boolean closingConnection =
-                Objects.equals(request.headers.getOrDefault("connection", null), "close");
+        boolean keepAlive =
+                !Objects.equals(request.headers.getOrDefault("connection", null), "close");
         String acceptEncoding = request.headers.getOrDefault("accept-encoding", null);
         String contentEncoding = null;
         if (acceptEncoding != null) {
@@ -62,8 +71,8 @@ public class HttpConnectionHandler implements TcpConnectionHandler {
             }
         }
         HttpResponse response = requestHandler.handle(request);
-        sendResponse(out, response, closingConnection, contentEncoding);
-        return !closingConnection;
+        sendResponse(out, response, keepAlive, contentEncoding);
+        return keepAlive;
     }
 
     /**
@@ -159,10 +168,7 @@ public class HttpConnectionHandler implements TcpConnectionHandler {
     }
 
     static void sendResponse(
-            OutputStream out,
-            HttpResponse response,
-            boolean closingConnection,
-            String contentEncoding)
+            OutputStream out, HttpResponse response, boolean keepAlive, String contentEncoding)
             throws IOException {
         // Use a byte buffer to minimize the number of syscalls taken to send the response.
         ByteArrayOutputStream buf = new ByteArrayOutputStream();
@@ -188,7 +194,7 @@ public class HttpConnectionHandler implements TcpConnectionHandler {
         if (response.body != null) {
             header.append("Content-Length: ").append(responseBody.length).append("\r\n");
         }
-        if (closingConnection) {
+        if (!keepAlive) {
             header.append("Connection: close").append("\r\n");
         }
 

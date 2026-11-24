@@ -11,6 +11,11 @@ import java.net.SocketException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+/**
+ * An OSI Layer 4 (transport) TCP server that accepts connections and dispatches each
+ * connection to a {@link TcpConnectionHandler}.
+ * The server handles connections concurrently, each on a virtual thread.
+ */
 public class TcpServer implements AutoCloseable {
     /**
      * The connection handler, which may be one that adheres to a protocol built
