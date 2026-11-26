@@ -27,4 +27,4 @@ jobs:
           distribution: temurin
           java-version: 25
       - name: Test
-        run: mvn test
+        run: mvn test -Pcoverage
