@@ -1,5 +1,8 @@
 package http;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import tcp.TcpConnectionHandler;
 
 import java.io.ByteArrayOutputStream;
@@ -25,6 +28,8 @@ import java.util.zip.GZIPOutputStream;
  * </ul>
  */
 public class HttpConnectionHandler implements TcpConnectionHandler {
+    private static final Logger log = LoggerFactory.getLogger(HttpConnectionHandler.class);
+
     final Set<String> SUPPORTED_ENCODINGS = Set.of("gzip");
 
     private final HttpRequestHandler requestHandler;
@@ -55,6 +60,8 @@ public class HttpConnectionHandler implements TcpConnectionHandler {
             sendResponse(out, response, false, null);
             return false;
         }
+
+        log.info("{} {}", request.method, request.path);
 
         boolean keepAlive =
                 !Objects.equals(request.headers.getOrDefault("connection", null), "close");

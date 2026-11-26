@@ -1,5 +1,8 @@
 package tcp;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -10,6 +13,7 @@ import java.net.Socket;
 import java.net.SocketException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadFactory;
 
 /**
  * An OSI Layer 4 (transport) TCP server that accepts connections and dispatches each
@@ -17,6 +21,8 @@ import java.util.concurrent.Executors;
  * The server handles connections concurrently, each on a virtual thread.
  */
 public class TcpServer implements AutoCloseable {
+    private static final Logger log = LoggerFactory.getLogger(TcpServer.class);
+
     /**
      * The connection handler, which may be one that adheres to a protocol built
      * on top of TCP (e.g. HTTP).
@@ -45,7 +51,7 @@ public class TcpServer implements AutoCloseable {
     }
 
     public void run() {
-        System.out.println("Starting TCP server...");
+        log.info("Starting TCP server...");
 
         // Only create a listeningSocket if it is not yet created.
         if (listeningSocket == null) {
@@ -57,7 +63,16 @@ public class TcpServer implements AutoCloseable {
             }
         }
 
-        try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
+        log.info(
+                "Running TCP server at {}:{}",
+                listeningSocket.getInetAddress().getHostAddress(),
+                getPort());
+
+        // Create a virtual thread factory to pass into the ThreadPerTaskExecutor.
+        // This factory gives each thread a name for better logging.
+        ThreadFactory virtualThreadFactory = Thread.ofVirtual().name("conn-", 0).factory();
+
+        try (ExecutorService executor = Executors.newThreadPerTaskExecutor(virtualThreadFactory)) {
             while (true) {
                 // Wait for connection from client.
                 // For each connection, creates a new "connection socket" that does
@@ -74,7 +89,7 @@ public class TcpServer implements AutoCloseable {
             // with a SocketException. This is an expected shutdown path, so we just log
             // and exit gracefully.
             if (listeningSocket.isClosed()) {
-                System.out.println("Server closed.");
+                log.info("Server closed.");
             } else {
                 throw new UncheckedIOException(
                         "Socket error while accepting connections on port " + getPort() + ".", e);
@@ -145,11 +160,10 @@ public class TcpServer implements AutoCloseable {
         } catch (IOException e) {
             // If IOException is thrown here, we assume this is the fault of the client
             // and log a DEBUG level message.
-            System.out.println(
-                    "[DEBUG] I/O error while handling connection on port "
-                            + getPort()
-                            + ": "
-                            + e.getMessage());
+            log.debug(
+                    "I/O error while handling connection on port {}: {}",
+                    getPort(),
+                    e.getMessage());
         }
     }
 

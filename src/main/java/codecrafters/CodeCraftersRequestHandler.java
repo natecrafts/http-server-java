@@ -5,6 +5,9 @@ import http.HttpRequestHandler;
 import http.HttpResponse;
 import http.HttpStatus;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -19,6 +22,8 @@ import java.nio.file.Path;
  * of TCP and HTTP.
  */
 public class CodeCraftersRequestHandler implements HttpRequestHandler {
+    private static final Logger log = LoggerFactory.getLogger(CodeCraftersRequestHandler.class);
+
     private final Path directory;
 
     public CodeCraftersRequestHandler(Path directory) {
@@ -91,8 +96,8 @@ public class CodeCraftersRequestHandler implements HttpRequestHandler {
                         || !filePath.startsWith(directory)
                         || fileName.isEmpty()) {
                     status = HttpStatus.BAD_REQUEST;
-                    // closingConnection = true;
                 } else {
+                    log.info("Writing to file {}", filePath);
                     Files.write(filePath, request.body);
                     status = HttpStatus.CREATED;
                 }
