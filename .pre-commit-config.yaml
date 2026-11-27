@@ -1,3 +1,4 @@
+---
 repos:
   - repo: https://github.com/natecrafts/google-java-format-pre-commit
     rev: v2.0.0
@@ -5,7 +6,29 @@ repos:
       - id: google-java-format-aosp
         args:
           - --skip-javadoc-formatting
+
+  - repo: https://github.com/psf/black-pre-commit-mirror
+    rev: 26.10.1
+    hooks:
+      - id: black
+
+  - repo: https://github.com/pycqa/isort
+    rev: 9.0.2
+    hooks:
+      - id: isort
+
   - repo: https://github.com/google/yamlfmt
     rev: v0.21.0
     hooks:
       - id: yamlfmt
+
+  # NOTE: Beware of https://github.com/rhysd/actionlint/issues/477.
+  # actionlint runs shellcheck if it is available in the environment.
+  # On GitHub Actions machines, shellcheck is currently installed by default.
+  # This may case inconsistent results on GitHub Actions vs the local dev
+  # machine if the local machine does not have shellcheck installed.
+  # TODO: Find some solution for this.
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.12
+    hooks:
+      - id: actionlint
